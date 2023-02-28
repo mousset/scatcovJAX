@@ -1,21 +1,36 @@
-# -*- encoding: utf-8 -*-
-from setuptools import setup
+from pathlib import Path
+from setuptools import find_packages, setup
+
+this_directory = Path(__file__).parent
+
+
+long_description = (this_directory / ".pip_readme.rst").read_text()
+requirements = (
+    (this_directory / "requirements" / "requirements-core.txt")
+    .read_text()
+    .split("\n")
+)
+
 
 setup(
-    name="scatcovjax",
-    version="1.0",
-    description='Spherical scattering covariance in alm space.',
-    url='https://github.com/litebird/LiteBIRD_perfo_model',
-    author='Louise Mousset',
-    author_email='louise.mousset@irap.omp.eu',
-    license='CC',
     classifiers=[
-        'Development Status :: 4 - Beta',
-        'Intended Audience :: Information Technology'
-        'Topic :: Scientific/Engineering',
-        'Programming Language :: Python',
-    ],  # classifiers list: https://pypi.python.org/pypi?%3Aaction=list_classifiers
-    scripts=[],
-    packages=['scatcovjax'],
-    install_requires=[],
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Operating System :: OS Independent",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+    ],
+    name="scatcovjax",
+    version="0.0.1",
+    url="https://github.com/astro-informatics/s2fft",
+    author="Louise Mousset & Contributors",
+    license="GNU General Public License v3 (GPLv3)",
+    python_requires=">=3.9",
+    install_requires=requirements,
+    description=("Spherical scattering covariance in alm space."),
+    long_description_content_type="text/x-rst",
+    long_description=long_description,
+    packages=find_packages(),
+    include_package_data=True,
+    pacakge_data={"scatcovjax"},
 )

@@ -1,0 +1,5 @@
+# Switch to pypi install when available
+s2fft @ git+https://github.com/astro-informatics/s2fft.git@main#egg=s2fft
+
+pysm3>=3.3.2
+
