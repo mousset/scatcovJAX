@@ -1,16 +1,16 @@
-# from os.path import dirname
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import pysm3
-# import astropy.units as u
-# import healpy as hp
-# from scipy.interpolate import interp2d
+from os.path import dirname
+import numpy as np
+import matplotlib.pyplot as plt
+import pysm3
+import astropy.units as u
+import healpy as hp
+from scipy.interpolate import interp2d
 
 # import s2fft
 
-# # To open earth map
-# from PIL import Image
-# from matplotlib.image import pil_to_array
+# To open earth map
+from PIL import Image
+from matplotlib.image import pil_to_array
 
 # __all__ = ['Spherical_Compute']
 
@@ -21,61 +21,61 @@
 # - plot the flm
 # """
 
-# ############ MAKING SKY MAPS
+############ MAKING SKY MAPS
 
 
-# def make_hpx_planet(nside, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps',
-#                     interp=True, normalize=False, nest=False):
-#     """
-#     Create a Healpix map from a JPG.
-#     For now, there are 4 options: CMB, Dust, random noise or the Earth map.
-#     Parameters
-#     ----------
-#     nside: int
-#         Nside parameter from Healpix. The number of pixel is 12xNside^2.
-#         It must be a power of 2.
-#     planet: str
-#         Name of the planet. Keywords allowed are: 'earth', 'sun', 'moon', 'mercury', 'venus', 'jupiter', 'ceres'
-#     dirmap: str
-#         Directory where planet maps are stored.
-#     interp: bool
-#          If True, make an interpolation of the 2D array.
-#     normalize: bool
-#         If True, the mean of the map is set to 0 and the STD to 1.
-#     nest: bool
-#         If True return a Healpix map in NEST ordering instead of RING ordering. False by default.
-#     Returns
-#     -------
-#     map: the Healpix map.
-#     """
-#     grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
-#     image_array = pil_to_array(grayscale_pil_image)
-#     theta = np.linspace(0, np.pi, num=image_array.shape[0])[:, None]
-#     phi = np.linspace(0, 2 * np.pi, num=image_array.shape[1])
-#     npix = hp.nside2npix(nside)
+def make_hpx_planet(nside, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps',
+                    interp=True, normalize=False, nest=False):
+    """
+    Create a Healpix map from a JPG.
+    For now, there are 4 options: CMB, Dust, random noise or the Earth map.
+    Parameters
+    ----------
+    nside: int
+        Nside parameter from Healpix. The number of pixel is 12xNside^2.
+        It must be a power of 2.
+    planet: str
+        Name of the planet. Keywords allowed are: 'earth', 'sun', 'moon', 'mercury', 'venus', 'jupiter', 'ceres'
+    dirmap: str
+        Directory where planet maps are stored.
+    interp: bool
+         If True, make an interpolation of the 2D array.
+    normalize: bool
+        If True, the mean of the map is set to 0 and the STD to 1.
+    nest: bool
+        If True return a Healpix map in NEST ordering instead of RING ordering. False by default.
+    Returns
+    -------
+    map: the Healpix map.
+    """
+    grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
+    image_array = pil_to_array(grayscale_pil_image)
+    theta = np.linspace(0, np.pi, num=image_array.shape[0])[:, None]
+    phi = np.linspace(0, 2 * np.pi, num=image_array.shape[1])
+    npix = hp.nside2npix(nside)
 
-#     if interp:
-#         f = interp2d(theta, phi, image_array.T, kind='cubic')
-#         map = np.zeros(npix)
-#         for p in range(npix):
-#             th, ph = hp.pix2ang(nside=nside, ipix=p)
-#             map[p] = f(th, ph)
-#     else:
-#         pix = hp.ang2pix(nside, theta, phi)
-#         map = np.zeros(npix, dtype=np.double)
-#         map[pix] = image_array
-#     # Convert float64 to float32
-#     map = np.array(map, dtype=np.float32)
-#     if normalize:  # Normalize: mean=0 and std=1
-#         map -= np.mean(map)
-#         map /= np.std(map)
-#     print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
+    if interp:
+        f = interp2d(theta, phi, image_array.T, kind='cubic')
+        map = np.zeros(npix)
+        for p in range(npix):
+            th, ph = hp.pix2ang(nside=nside, ipix=p)
+            map[p] = f(th, ph)
+    else:
+        pix = hp.ang2pix(nside, theta, phi)
+        map = np.zeros(npix, dtype=np.double)
+        map[pix] = image_array
+    # Convert float64 to float32
+    map = np.array(map, dtype=np.float32)
+    if normalize:  # Normalize: mean=0 and std=1
+        map -= np.mean(map)
+        map /= np.std(map)
+    print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
 
-#     # Convert from RING to NEST ordering
-#     if nest:
-#         map = hp.reorder(map, r2n=True)
+    # Convert from RING to NEST ordering
+    if nest:
+        map = hp.reorder(map, r2n=True)
 
-#     return map
+    return map
 
 
 # def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
@@ -125,6 +125,7 @@
 #         map = hp.reorder(map, r2n=True)
 
 #     return map
+
 
 
 # ############ AVERAGE, VARIANCE AND PS ON SPHERE

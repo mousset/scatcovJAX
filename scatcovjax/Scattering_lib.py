@@ -209,6 +209,7 @@ def scat_cov_axi(
     N: int,
     J_min: int,
     sampling: str = "mw",
+    nside: int = None,
     reality: bool = False,
     multiresolution: bool = False,
     flat_covariances: bool = True,
@@ -241,14 +242,19 @@ def scat_cov_axi(
     # W_lm = (I * Psi)_lm = I_lm * Psi_l0  # [Nimg, Q, Nalm]
     ### Go to map space and take the module
     # M = |SHT_inverse(W_lm)|  # [Nimg, Q, Npix]
+    if sampling == 'healpix':
+        multires = False
+    else:
+        multires = multiresolution
     W, _ = s2wav.flm_to_analysis(
         Ilm,
         L,
         N,
         J_min,
         sampling=sampling,
+        nside=nside,
         reality=reality,
-        multiresolution=multiresolution,
+        multiresolution=multires,
         filters=filters,
     )
 
@@ -260,10 +266,10 @@ def scat_cov_axi(
     M_lm = []
     for j in range(J_min, J + 1):
         Lj, _, _ = s2wav.utils.shapes.LN_j(
-            L, j, N, multiresolution=multiresolution
+            L, j, N, multiresolution=multires
         )
         val = s2fft.forward_jax(
-            jnp.abs(W[j - J_min][0]), Lj, 0, sampling=sampling, reality=reality
+            jnp.abs(W[j - J_min][0]), Lj, 0, sampling=sampling, nside=nside, reality=reality,
         )
         M_lm.append(val)
 
