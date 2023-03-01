@@ -246,6 +246,7 @@ def scat_cov_axi(
         multires = False
     else:
         multires = multiresolution
+
     W, _ = s2wav.flm_to_analysis(
         Ilm,
         L,
@@ -369,33 +370,3 @@ def scat_cov_axi(
     return mean, var, jnp.array(S1), jnp.array(P00), C01
     # return mean, var, jnp.array(S1), jnp.array(P00), C01, C11
 
-
-if __name__ == "__main__":
-    sampling = "mw"
-    multiresolution = True
-    reality = True
-    nside = 16
-    L = 3 * nside
-    N = 1
-    J_min = 0
-    np.random.seed(0)
-
-    filters = s2wav.filter_factory.filters.filters_directional_vectorised(
-        L, N, J_min
-    )
-
-    I = np.random.randn(L, 2 * L - 1).astype(np.float64)
-    Ilm = s2fft.forward_jax(I, L)
-    mean, var, S1, P00, C01, C11 = scat_cov_axi(
-        Ilm, L, N, J_min, sampling, reality, multiresolution, filters
-    )
-
-    S1 = np.log2(np.array(S1))
-    P00 = np.log2(np.array(P00))
-
-    from matplotlib import pyplot as plt
-
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-    ax1.plot(S1[:-1])
-    ax2.plot(P00[:-1])
-    plt.show()

@@ -14,6 +14,7 @@ requirements = (
 
 setup(
     classifiers=[
+        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Operating System :: OS Independent",
@@ -22,10 +23,10 @@ setup(
     ],
     name="scatcovjax",
     version="0.0.1",
-    url="https://github.com/astro-informatics/s2fft",
+    url="https://github.com/mousset/scatcovJAX",
     author="Louise Mousset & Contributors",
     license="GNU General Public License v3 (GPLv3)",
-    python_requires=">=3.9",
+    python_requires=">=3.8",
     install_requires=requirements,
     description=("Spherical scattering covariance in alm space."),
     long_description_content_type="text/x-rst",
