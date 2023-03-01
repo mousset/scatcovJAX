@@ -202,23 +202,37 @@ This library is made to
 #         return mean, var, S1, P00, C01, C11
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6))
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
 def scat_cov_axi(
-    Ilm: jnp.ndarray,
+    Ilm_in: jnp.ndarray,
     L: int,
     N: int,
     J_min: int,
     sampling: str = "mw",
     reality: bool = False,
     multiresolution: bool = False,
+    flat_covariances: bool = True,
+    normalisation: jnp.ndarray = None,
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
 
+    if reality:
+        # Create and store signs 
+        msigns = (-1)**jnp.arange(1,L)
+
+        # Reflect and apply hermitian symmetry
+        Ilm = jnp.zeros((L, 2*L-1), dtype=jnp.complex128)
+        Ilm = Ilm.at[:,L-1:].set(Ilm_in)
+        Ilm = Ilm.at[:, : L - 1].set(jnp.flip(jnp.conj(Ilm[:, L:])*msigns, axis=-1))
+
+    else:
+        Ilm = Ilm_in
+
     ######## Mean and variance of the data
     # mean = < I >_omega = I_00/2sqrt(pi) # [Nimg]
-    mean = Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi))
+    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))
     # var = Var(I) = <|I_lm|^2>_lm  # [Nimg]
-    var = jnp.mean(Ilm * jnp.conj(Ilm))
+    var = jnp.mean(jnp.abs(Ilm)**2)
 
     ######## COMPUTE C01 AND C11
 
@@ -237,9 +251,7 @@ def scat_cov_axi(
         multiresolution=multiresolution,
         filters=filters,
     )
-    # M = jnp.abs(W)
-    # for entry in range(len(M)):
-    #     M[entry] = jnp.abs(M[entry])
+
     J = s2wav.utils.shapes.j_max(L)
 
     ### Go back to alm space
@@ -263,6 +275,8 @@ def scat_cov_axi(
             L, j, N, multiresolution=multiresolution
         )
         val = M_lm[j - J_min][0, Lj - 1] / (2 * jnp.sqrt(jnp.pi))
+        if normalisation is not None:
+            val /= jnp.sqrt(normalisation[j-J_min])
         S1.append(val)
 
     # P00 = <M^2>_omega =  <WW*>_omega = <W_lm W_lm*>_lm = < |M_lm|^2 >_lm   # [Nimg, Q]
@@ -271,8 +285,10 @@ def scat_cov_axi(
         Lj, _, _ = s2wav.utils.shapes.LN_j(
             L, j, N, multiresolution=multiresolution
         )
-        val = jnp.mean(M_lm[j - J_min] * jnp.conj(M_lm[j - J_min]))
+        val = jnp.mean(jnp.abs(M_lm[j - J_min])**2)
         val *= Lj / L
+        if normalisation is not None:
+            val /= normalisation[j-J_min]
         P00.append(val)
 
     ### Get |Psi_lm|^2 TODO: this can be done a priori
@@ -282,8 +298,7 @@ def scat_cov_axi(
         Lj, _, L0j = s2wav.utils.shapes.LN_j(
             L, j, N, multiresolution=multiresolution
         )
-        val = filters[0][j - J_min]
-        val *= jnp.conj(val)
+        val = jnp.abs(filters[0][j - J_min])**2
         wav_lm_square.append(val)
 
     ### Compute C01 and C11
@@ -307,39 +322,46 @@ def scat_cov_axi(
                 * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj])
                 * wav_lm_square_current[L0j:Lj, L - Lj : L - 1 + Lj]
             )
-            val /= jnp.sqrt(P00[j2 - J_min] * P00[j1 - J_min])
+            if normalisation is not None:
+                val /= jnp.sqrt(normalisation[j2 - J_min] * normalisation[j1 - J_min])
             C01_q2.append(val)
         C01.append(C01_q2)
 
-    C11 = []
-    for j3 in range(J_min + 2, J + 1):
-        L3j, _, _ = s2wav.utils.shapes.LN_j(
-            L, j3, N, multiresolution=multiresolution
-        )
-        M_lm_q1 = M_lm[j3 - J_min]
-        C11_q1 = []
-        for j2 in range(J_min + 1, j3):
-            L2j, _, _ = s2wav.utils.shapes.LN_j(
-                L, j2, N, multiresolution=multiresolution
-            )
-            M_lm_q2 = M_lm[j2 - J_min]
-            C11_q2 = []
-            for j1 in range(J_min, j2):
-                Lj, _, L0j = s2wav.utils.shapes.LN_j(
-                    L, j1, N, multiresolution=multiresolution
-                )
-                wav_lm_square_current = wav_lm_square[j1 - J_min]
-                val = jnp.mean(
-                    M_lm_q1[L0j:Lj, L3j - Lj : L3j - 1 + Lj]
-                    * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj])
-                    * wav_lm_square_current[L0j:Lj, L - Lj : L - 1 + Lj]
-                )
-                val /= jnp.sqrt(P00[j3 - J_min] * P00[j2 - J_min])
-                C11_q2.append(val)
-            C11_q1.append(C11_q2)
-        C11.append(C11_q1)
+    # C11 = []
+    # for j3 in range(J_min + 2, J + 1):
+    #     L3j, _, _ = s2wav.utils.shapes.LN_j(
+    #         L, j3, N, multiresolution=multiresolution
+    #     )
+    #     M_lm_q1 = M_lm[j3 - J_min]
+    #     C11_q1 = []
+    #     for j2 in range(J_min + 1, j3):
+    #         L2j, _, _ = s2wav.utils.shapes.LN_j(
+    #             L, j2, N, multiresolution=multiresolution
+    #         )
+    #         M_lm_q2 = M_lm[j2 - J_min]
+    #         C11_q2 = []
+    #         for j1 in range(J_min, j2):
+    #             Lj, _, L0j = s2wav.utils.shapes.LN_j(
+    #                 L, j1, N, multiresolution=multiresolution
+    #             )
+    #             wav_lm_square_current = wav_lm_square[j1 - J_min]
+    #             val = jnp.mean(
+    #                 M_lm_q1[L0j:Lj, L3j - Lj : L3j - 1 + Lj]
+    #                 * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj])
+    #                 * wav_lm_square_current[L0j:Lj, L - Lj : L - 1 + Lj]
+    #             )
+                # val /= jnp.sqrt(P00[j3 - J_min] * P00[j2 - J_min])
+    #             C11_q2.append(val)
+    #         C11_q1.append(C11_q2)
+    #     C11.append(C11_q1)
 
-    return mean, var, S1, P00, C01, C11
+    if flat_covariances:
+        # Flatten lists and convert to arrays
+        C01 = jnp.stack([item for sublist in C01 for item in sublist])
+    #     C11 = jnp.stack([item for sublist in C11 for subsublist in sublist for item in subsublist])
+
+    return mean, var, jnp.array(S1), jnp.array(P00), C01
+    # return mean, var, jnp.array(S1), jnp.array(P00), C01, C11
 
 
 if __name__ == "__main__":
