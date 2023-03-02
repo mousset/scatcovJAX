@@ -231,9 +231,9 @@ def scat_cov_axi(
 
     ######## Mean and variance of the data
     # mean = < I >_omega = I_00/2sqrt(pi) # [Nimg]
-    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))
+    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))  #TODO: VERY slight difference here jnp.real 
     # var = Var(I) = <|I_lm|^2>_lm  # [Nimg]
-    var = jnp.mean(jnp.abs(Ilm)**2)
+    var = jnp.mean(jnp.abs(Ilm[1:])**2) #TODO: 4pi normalisations, complex type
 
     ######## COMPUTE C01 AND C11
 
@@ -247,6 +247,7 @@ def scat_cov_axi(
     else:
         multires = multiresolution
 
+    #TODO: some normalisation 
     W, _ = s2wav.flm_to_analysis(
         Ilm,
         L,
@@ -281,7 +282,7 @@ def scat_cov_axi(
         Lj, _, _ = s2wav.utils.shapes.LN_j(
             L, j, N, multiresolution=multiresolution
         )
-        val = M_lm[j - J_min][0, Lj - 1] / (2 * jnp.sqrt(jnp.pi))
+        val = jnp.real(M_lm[j - J_min][0, Lj - 1]) / (2 * jnp.sqrt(jnp.pi))
         if normalisation is not None:
             val /= jnp.sqrt(normalisation[j-J_min])
         S1.append(val)
@@ -292,7 +293,7 @@ def scat_cov_axi(
         Lj, _, _ = s2wav.utils.shapes.LN_j(
             L, j, N, multiresolution=multiresolution
         )
-        val = jnp.mean(jnp.abs(M_lm[j - J_min])**2)
+        val = jnp.mean(jnp.abs(M_lm[j - J_min])**2) #TODO: This IS NOT the correct mean function
         val *= Lj / L
         if normalisation is not None:
             val /= normalisation[j-J_min]
@@ -302,10 +303,7 @@ def scat_cov_axi(
     # |Psi_lm(q)|^2 =  # [Q, Nalm]
     wav_lm_square = []
     for j in range(J_min, J + 1):
-        Lj, _, L0j = s2wav.utils.shapes.LN_j(
-            L, j, N, multiresolution=multiresolution
-        )
-        val = jnp.abs(filters[0][j - J_min])**2
+        val = jnp.abs(filters[0][j - J_min][:,L-1])**2  #TODO: THIS IS WRONG 
         wav_lm_square.append(val)
 
     ### Compute C01 and C11
@@ -325,48 +323,49 @@ def scat_cov_axi(
                 L, j1, N, multiresolution=multiresolution
             )
             val = jnp.mean(
+                jnp.einsum("lm,l->lm",
                 Ilm[L0j:Lj, L - Lj : L - 1 + Lj]
-                * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj])
-                * wav_lm_square_current[L0j:Lj, L - Lj : L - 1 + Lj]
-            )
+                * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj]),
+                wav_lm_square_current[L0j:Lj], optimize=True)
+            ) #TODO: Not the same mean function.
             if normalisation is not None:
                 val /= jnp.sqrt(normalisation[j2 - J_min] * normalisation[j1 - J_min])
             C01_q2.append(val)
         C01.append(C01_q2)
 
-    # C11 = []
-    # for j3 in range(J_min + 2, J + 1):
-    #     L3j, _, _ = s2wav.utils.shapes.LN_j(
-    #         L, j3, N, multiresolution=multiresolution
-    #     )
-    #     M_lm_q1 = M_lm[j3 - J_min]
-    #     C11_q1 = []
-    #     for j2 in range(J_min + 1, j3):
-    #         L2j, _, _ = s2wav.utils.shapes.LN_j(
-    #             L, j2, N, multiresolution=multiresolution
-    #         )
-    #         M_lm_q2 = M_lm[j2 - J_min]
-    #         C11_q2 = []
-    #         for j1 in range(J_min, j2):
-    #             Lj, _, L0j = s2wav.utils.shapes.LN_j(
-    #                 L, j1, N, multiresolution=multiresolution
-    #             )
-    #             wav_lm_square_current = wav_lm_square[j1 - J_min]
-    #             val = jnp.mean(
-    #                 M_lm_q1[L0j:Lj, L3j - Lj : L3j - 1 + Lj]
-    #                 * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj])
-    #                 * wav_lm_square_current[L0j:Lj, L - Lj : L - 1 + Lj]
-    #             )
-                # val /= jnp.sqrt(P00[j3 - J_min] * P00[j2 - J_min])
-    #             C11_q2.append(val)
-    #         C11_q1.append(C11_q2)
-    #     C11.append(C11_q1)
+    C11 = []
+    for j3 in range(J_min + 2, J + 1):
+        L3j, _, _ = s2wav.utils.shapes.LN_j(
+            L, j3, N, multiresolution=multiresolution
+        )
+        M_lm_q1 = M_lm[j3 - J_min]
+        C11_q1 = []
+        for j2 in range(J_min + 1, j3):
+            L2j, _, _ = s2wav.utils.shapes.LN_j(
+                L, j2, N, multiresolution=multiresolution
+            )
+            M_lm_q2 = M_lm[j2 - J_min]
+            C11_q2 = []
+            for j1 in range(J_min, j2):
+                Lj, _, L0j = s2wav.utils.shapes.LN_j(
+                    L, j1, N, multiresolution=multiresolution
+                )
+                wav_lm_square_current = wav_lm_square[j1 - J_min]
+                val = jnp.mean(jnp.einsum("lm,l->lm",
+                    M_lm_q1[L0j:Lj, L3j - Lj : L3j - 1 + Lj]
+                    * jnp.conj(M_lm_q2[L0j:Lj, L2j - Lj : L2j - 1 + Lj]),
+                    wav_lm_square_current[L0j:Lj], optimize=True)
+                ) #TODO: Not the same mean function.
+                if normalisation is not None:
+                    val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
+                C11_q2.append(val)
+            C11_q1.append(C11_q2)
+        C11.append(C11_q1)
 
     if flat_covariances:
         # Flatten lists and convert to arrays
         C01 = jnp.stack([item for sublist in C01 for item in sublist])
-    #     C11 = jnp.stack([item for sublist in C11 for subsublist in sublist for item in subsublist])
+        C11 = jnp.stack([item for sublist in C11 for subsublist in sublist for item in subsublist])
 
-    return mean, var, jnp.array(S1), jnp.array(P00), C01
-    # return mean, var, jnp.array(S1), jnp.array(P00), C01, C11
+    return mean, var, jnp.array(S1), jnp.array(P00), C01, C11
 
