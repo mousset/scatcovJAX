@@ -100,7 +100,7 @@ def scat_cov_dir(
                 nside=nside,
                 reality=reality,
                 multiresolution=multires,
-                filters=(filters[0][:j-J_min+1][:Lj,L-Lj:L-1+Lj], filters[1])
+                filters=(filters[0][:j-J_min+1, :Lj, L-Lj:L-1+Lj], filters[1])
             )
             Njjprime_for_j.append(val)
         Njjprime.append(Njjprime_for_j)
@@ -121,7 +121,7 @@ def scat_cov_dir(
                     val *= jnp.conj(Njjprime[j3-J_min][n3][j2-J_min][n2])
                     if sampling.lower() == "healpix":
                         val = jnp.sum(val * quads) #TODO: fix quad indexing for healpix multires.
-                    else:  
+                    else:
                         val = jnp.sum(jnp.einsum("tp,t->tp", val, quads[j2-J_min], optimize=True))
                     
                     if normalisation is not None:
