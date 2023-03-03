@@ -105,8 +105,12 @@ def scat_cov_dir(
             Njjprime_for_j.append(val)
         Njjprime.append(Njjprime_for_j)
 
+    quads = []
+    for j in range(J_min, J+1):
+        Lj, _, _ = s2wav.utils.shapes.LN_j(L, j, N, multiresolution=multiresolution)
+        quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+
     C01 = []
-    quad_weights = s2fft.utils.quadrature_jax.quad_weights(L, sampling, nside) #[ntheta]
     for j3 in range(J_min + 1, J + 1):
         _, N3j, _ = s2wav.utils.shapes.LN_j(L, j3, N, multiresolution=multiresolution)
         for n3 in range(2*N3j-1):
@@ -116,9 +120,9 @@ def scat_cov_dir(
                     val = W[j2-J_min][n2]
                     val *= jnp.conj(Njjprime[j3-J_min][n3][j2-J_min][n2])
                     if sampling.lower() == "healpix":
-                        val = jnp.sum(val * quad_weights) #TODO: fix quad indexing for healpix multires.
+                        val = jnp.sum(val * quads) #TODO: fix quad indexing for healpix multires.
                     else:  
-                        val = jnp.sum(jnp.einsum("tp,t->tp", val, quad_weights[:L2j], optimize=True))
+                        val = jnp.sum(jnp.einsum("tp,t->tp", val, quads[j2-J_min], optimize=True))
                     
                     if normalisation is not None:
                         val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
@@ -139,9 +143,9 @@ def scat_cov_dir(
                             val = Njjprime[j2-J_min][n2][j1-J_min][n1]
                             val *= jnp.conj(Njjprime[j3-J_min][n3][j1-J_min][n1])
                             if sampling.lower() == "healpix":
-                                val = jnp.sum(val * quad_weights) #TODO: fix quad indexing for healpix multires.
+                                val = jnp.sum(val * quads) #TODO: fix quad indexing for healpix multires.
                             else:  
-                                val = jnp.sum(jnp.einsum("tp,t->tp", val, quad_weights[:L1j], optimize=True))
+                                val = jnp.sum(jnp.einsum("tp,t->tp", val, quads[j1-J_min], optimize=True))
 
                             if normalisation is not None:
                                 val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
