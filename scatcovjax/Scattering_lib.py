@@ -119,6 +119,10 @@ def scat_cov_dir(
                         val = jnp.sum(val * quad_weights) #TODO: fix quad indexing for healpix multires.
                     else:  
                         val = jnp.sum(jnp.einsum("tp,t->tp", val, quad_weights[:L2j], optimize=True))
+                    
+                    if normalisation is not None:
+                        val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
+
                     C01.append(val) 
     
     C11 = []
@@ -138,12 +142,16 @@ def scat_cov_dir(
                                 val = jnp.sum(val * quad_weights) #TODO: fix quad indexing for healpix multires.
                             else:  
                                 val = jnp.sum(jnp.einsum("tp,t->tp", val, quad_weights[:L1j], optimize=True))
+
+                            if normalisation is not None:
+                                val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
+
                             C11.append(val) 
                     
     return mean, var, jnp.array(S1), jnp.array(P00), jnp.array(C01), jnp.array(C11)
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8))
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
 def scat_cov_axi(
     Ilm_in: jnp.ndarray,
     L: int,
@@ -153,7 +161,6 @@ def scat_cov_axi(
     nside: int = None,
     reality: bool = False,
     multiresolution: bool = False,
-    flat_covariances: bool = True,
     normalisation: jnp.ndarray = None,
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
@@ -254,7 +261,6 @@ def scat_cov_axi(
     for j2 in range(J_min + 1, J + 1):
         L2j, _, _ = s2wav.utils.shapes.LN_j(L, j2, N, multiresolution=multiresolution)
         M_lm_q2 = M_lm[j2 - J_min]
-        C01_q2 = []
         for j1 in range(J_min, j2):
             wav_lm_square_current = wav_lm_square[j1 - J_min]
             Lj, _, L0j = s2wav.utils.shapes.LN_j(
@@ -271,20 +277,17 @@ def scat_cov_axi(
             )  # TODO: Not the same mean function.
             if normalisation is not None:
                 val /= jnp.sqrt(normalisation[j2 - J_min] * normalisation[j1 - J_min])
-            C01_q2.append(val)
-        C01.append(C01_q2)
+            C01.append(val)
 
     C11 = []
     for j3 in range(J_min + 2, J + 1):
         L3j, _, _ = s2wav.utils.shapes.LN_j(L, j3, N, multiresolution=multiresolution)
         M_lm_q1 = M_lm[j3 - J_min]
-        C11_q1 = []
         for j2 in range(J_min + 1, j3):
             L2j, _, _ = s2wav.utils.shapes.LN_j(
                 L, j2, N, multiresolution=multiresolution
             )
             M_lm_q2 = M_lm[j2 - J_min]
-            C11_q2 = []
             for j1 in range(J_min, j2):
                 Lj, _, L0j = s2wav.utils.shapes.LN_j(
                     L, j1, N, multiresolution=multiresolution
@@ -303,18 +306,9 @@ def scat_cov_axi(
                     val /= jnp.sqrt(
                         normalisation[j3 - J_min] * normalisation[j2 - J_min]
                     )
-                C11_q2.append(val)
-            C11_q1.append(C11_q2)
-        C11.append(C11_q1)
+                C11.append(val)
 
-    if flat_covariances:
-        # Flatten lists and convert to arrays
-        C01 = jnp.stack([item for sublist in C01 for item in sublist])
-        C11 = jnp.stack(
-            [item for sublist in C11 for subsublist in sublist for item in subsublist]
-        )
-
-    return mean, var, jnp.array(S1), jnp.array(P00), C01, C11
+    return mean, var, jnp.array(S1), jnp.array(P00), jnp.array(C01), jnp.array(C11)
 
 
 if __name__=="__main__":
