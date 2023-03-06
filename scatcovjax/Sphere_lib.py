@@ -78,53 +78,53 @@ def make_hpx_planet(nside, planet, dirmap=dirname(dirname(__file__)) + '/texture
     return map
 
 
-# def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
-#     """
-#     Create a Healpix map.
-#     For now, there are 3 options: CMB, Dust or random noise.
-#     Parameters
-#     ----------
-#     nside: int
-#         Nside parameter from Healpix. The number of pixel is 12xNside^2.
-#         It must be a power of 2.
-#     sky_type: str
-#         Type of sky. Keywords allowed are: 'cmb', 'dust', 'noise'
-#     normalize: bool
-#         If True, the mean of the map is set to 0 and the STD to 1.
-#     nest: bool
-#         If True return a Healpix map in NEST ordering instead of RING ordering. False by default.
-#     Returns
-#     -------
-#     map: the Healpix map.
-#     """
+def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
+    """
+    Create a Healpix map.
+    For now, there are 3 options: CMB, Dust or random noise.
+    Parameters
+    ----------
+    nside: int
+        Nside parameter from Healpix. The number of pixel is 12xNside^2.
+        It must be a power of 2.
+    sky_type: str
+        Type of sky. Keywords allowed are: 'cmb', 'dust', 'noise'
+    normalize: bool
+        If True, the mean of the map is set to 0 and the STD to 1.
+    nest: bool
+        If True return a Healpix map in NEST ordering instead of RING ordering. False by default.
+    Returns
+    -------
+    map: the Healpix map.
+    """
 
-#     if sky_type == 'noise':  # White noise
-#         map = np.random.random(size=12 * nside ** 2)
+    if sky_type == 'noise':  # White noise
+        map = np.random.random(size=12 * nside ** 2)
 
-#     elif sky_type == 'cmb':  # CMB sky
-#         sky = pysm3.Sky(nside=nside, preset_strings=["c1"], output_unit="K_CMB")
-#         cmb_maps = sky.get_emission(freq=np.array(150) * u.GHz)
-#         map = cmb_maps[0, :].value  # Take only intensity and remove unit
+    elif sky_type == 'cmb':  # CMB sky
+        sky = pysm3.Sky(nside=nside, preset_strings=["c1"], output_unit="K_CMB")
+        cmb_maps = sky.get_emission(freq=np.array(150) * u.GHz)
+        map = cmb_maps[0, :].value  # Take only intensity and remove unit
 
-#     elif sky_type == 'dust':  # Dust sky
-#         sky = pysm3.Sky(nside=nside, preset_strings=["d1"], output_unit="K_CMB")
-#         dust_maps = sky.get_emission(freq=np.array(400) * u.GHz)
-#         map = dust_maps[0, :].value  # Take only intensity and remove unit
+    elif sky_type == 'dust':  # Dust sky
+        sky = pysm3.Sky(nside=nside, preset_strings=["d1"], output_unit="K_CMB")
+        dust_maps = sky.get_emission(freq=np.array(400) * u.GHz)
+        map = dust_maps[0, :].value  # Take only intensity and remove unit
 
-#     else:
-#         raise ValueError('sky_type argument has a wrong value.')
-#     # Convert float64 to float32
-#     map = np.array(map, dtype=np.float32)
-#     if normalize:  # Normalize: mean=0 and std=1
-#         map -= np.mean(map)
-#         map /= np.std(map)
-#     print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
+    else:
+        raise ValueError('sky_type argument has a wrong value.')
+    # Convert float64 to float32
+    map = np.array(map, dtype=np.float32)
+    if normalize:  # Normalize: mean=0 and std=1
+        map -= np.mean(map)
+        map /= np.std(map)
+    print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
 
-#     # Convert from RING to NEST ordering
-#     if nest:
-#         map = hp.reorder(map, r2n=True)
+    # Convert from RING to NEST ordering
+    if nest:
+        map = hp.reorder(map, r2n=True)
 
-#     return map
+    return map
 
 
 
