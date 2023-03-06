@@ -25,7 +25,7 @@ def scat_cov_dir(
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
     if reality:
-        sphlib.make_flm_full(Ilm_in, L)
+        Ilm = sphlib.make_flm_full(Ilm_in, L)
     else:
         Ilm = Ilm_in
     
@@ -163,7 +163,7 @@ def scat_cov_axi(
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
     if reality:
-        sphlib.make_flm_full(Ilm_in, L)
+        Ilm = sphlib.make_flm_full(Ilm_in, L)
     else:
         Ilm = Ilm_in
 
