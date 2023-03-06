@@ -1,22 +1,20 @@
 from os.path import dirname
 import numpy as np
-import matplotlib.pyplot as plt
 import pysm3
 import astropy.units as u
 import healpy as hp
 from scipy.interpolate import interp2d
-
-# import s2fft
+import jax.numpy as jnp
+import s2fft
 
 # To open earth map
 from PIL import Image
 from matplotlib.image import pil_to_array
 
-# __all__ = ['Spherical_Compute']
 
 # """
 # This library is made to
-# - produce Healpix sky map
+# - Load Healpix or MW sky map
 # - define mathematical operations on the sphere (mean, scalar product...)
 # """
 
@@ -126,6 +124,53 @@ def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
     return map
 
 
+def make_MW_planet(L, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps',
+                   normalize=False, reality=True):
+    # Load the JPG map
+    grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
+    I = pil_to_array(grayscale_pil_image).astype(np.float64)
+    I = np.ascontiguousarray(I[:, :-1])  # Remove the last phi dimension to have [Ntheta, 2Ntheta -1] shape
+
+    # SHT forward transform at L_temp=Ntheta
+    L_temp, _ = I.shape
+    Ilm = s2fft.forward_jax(I, L_temp, reality=reality)  # [L_temp, 2L_temp - 1]
+
+    # Cut the Ilm at the L resolution
+    Ilm = Ilm[:L, L_temp - L:L_temp + L - 1]  # [L, 2L-1]
+    print(Ilm.shape)
+
+    # SHT inverse transform at L
+    I = s2fft.inverse_jax(Ilm, L, reality=reality)  # [Ntheta, 2Ntheta-1]
+    if normalize:
+        I -= np.mean(I)
+        I /= np.std(I)
+
+    # SHT forward transform at L
+    Ilm = s2fft.forward_jax(I, L, reality=reality)  # [L, 2L-1]
+
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L-1:]  # [L, L]
+
+    return I, Ilm
+
+############ OPERATIONS ON flm
+
+
+def make_flm_full(flm_half, L):
+    # Create and store signs
+    msigns = (-1) ** jnp.arange(1, L)
+
+    # Reflect and apply hermitian symmetry
+    flm_full = jnp.zeros((L, 2 * L - 1), dtype=jnp.complex128)
+    flm_full = flm_full.at[:, L - 1:].set(flm_half)
+    flm_full = flm_full.at[:, : L - 1].set(jnp.flip(jnp.conj(flm_full[:, L:]) * msigns, axis=-1))
+
+    return flm_full
+
+
+def compute_ps(flm):
+    return jnp.sum(jnp.abs(flm)**2,axis=-1)
 
 # ############ AVERAGE, VARIANCE AND PS ON SPHERE
 # class Spherical_Compute():
