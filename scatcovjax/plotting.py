@@ -131,3 +131,30 @@ def plot_alm(alm, s=10, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, m
         axs[2].set_title('Amplitude', fontsize=fontsize)
         fig.tight_layout()
     return fig
+
+
+def plot_scatcov_coeffs(S1, P00, C01, C11, name=None, hold=True, color='blue', lw=1):
+
+    if name is None:
+        name = ''
+
+    if hold:
+        plt.figure(figsize=(8, 8))
+
+    plt.subplot(2, 2, 1)
+    plt.plot(np.real(S1), color=color, label=f'{name} ' + r'$S_1$', lw=lw)
+    plt.legend()
+
+    plt.subplot(2, 2, 2)
+    plt.plot(np.real(P00), color=color, label=f'{name} ' + r'$P_{00}$', lw=lw)
+    plt.legend()
+
+    plt.subplot(2, 2, 3)
+    plt.plot(np.real(C01), color=color, label=f'{name} ' + r'$C_{01}$', lw=lw)
+    plt.legend()
+
+    plt.subplot(2, 2, 4)
+    plt.plot(np.real(C11), color=color, label=f'{name} ' + r'$C_{11}$', lw=lw)
+    plt.legend()
+
+    return
