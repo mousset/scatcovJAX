@@ -7,6 +7,7 @@ import jax.numpy as jnp
 from functools import partial
 from typing import List, Tuple
 
+import scatcovjax.Sphere_lib as sphlib
 import s2wav
 import s2fft
 
@@ -24,14 +25,7 @@ def scat_cov_dir(
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
     if reality:
-        # Create and store signs
-        msigns = (-1) ** jnp.arange(1, L)
-
-        # Reflect and apply hermitian symmetry
-        Ilm = jnp.zeros((L, 2 * L - 1), dtype=jnp.complex128)
-        Ilm = Ilm.at[:, L - 1 :].set(Ilm_in)
-        Ilm = Ilm.at[:, : L - 1].set(jnp.flip(jnp.conj(Ilm[:, L:]) * msigns, axis=-1))
-
+        sphlib.make_flm_full(Ilm_in, L)
     else:
         Ilm = Ilm_in
     
@@ -169,14 +163,7 @@ def scat_cov_axi(
     filters: Tuple[jnp.ndarray] = None,
 ) -> List[jnp.ndarray]:
     if reality:
-        # Create and store signs
-        msigns = (-1) ** jnp.arange(1, L)
-
-        # Reflect and apply hermitian symmetry
-        Ilm = jnp.zeros((L, 2 * L - 1), dtype=jnp.complex128)
-        Ilm = Ilm.at[:, L - 1 :].set(Ilm_in)
-        Ilm = Ilm.at[:, : L - 1].set(jnp.flip(jnp.conj(Ilm[:, L:]) * msigns, axis=-1))
-
+        sphlib.make_flm_full(Ilm_in, L)
     else:
         Ilm = Ilm_in
 
