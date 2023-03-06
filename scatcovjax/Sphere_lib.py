@@ -18,7 +18,6 @@ from matplotlib.image import pil_to_array
 # This library is made to
 # - produce Healpix sky map
 # - define mathematical operations on the sphere (mean, scalar product...)
-# - plot the flm
 # """
 
 ############ MAKING SKY MAPS
@@ -224,61 +223,3 @@ def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
 #         ps = self.average_alm_hpx(alm_hpx0 * np.conj(alm_hpx1))
 #         return ps
 
-#     def plot_alm(self, alm, s=10, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=None,
-#                  cmap='viridis', figsize=(12, 6), fontsize=16, real_part_only=False):
-#         """
-#         Plot the alm in the (l, m) plane. By default, it plots real part, imaginary part and amplitude.
-#         Parameters
-#         ----------
-#         alm: tensor
-#             alm hpx coefficients.
-#         s: int
-#             Size of the points.
-#         real_part_only: bool
-#             if True, only plot the real part.
-
-#         Returns
-#         -------
-
-#         """
-#         ell, em = self.l_hpx, self.m_hpx
-
-#         if real_part_only:
-#             fig, ax = plt.subplots(1, 1, figsize=figsize)
-#             im0 = ax.scatter(ell, em, c=np.real(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-#             fig.colorbar(im0, ax=ax)
-#             ax.set_xlabel(r'$\ell$', fontsize=fontsize)
-#             ax.set_ylabel('m', fontsize=fontsize)
-#             ax.axis('scaled')
-#             ax.set_xlim(lmin, lmax)
-#             ax.set_ylim(mmin, mmax)
-#             ax.set_title('Real part', fontsize=fontsize)
-#             fig.tight_layout()
-#         else:
-#             fig, axs = plt.subplots(1, 3, figsize=figsize)
-#             axs = np.ravel(axs)
-#             im0 = axs[0].scatter(ell, em, c=np.real(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-#             fig.colorbar(im0, ax=axs[0])
-#             axs[0].set_xlabel(r'$\ell$', fontsize=fontsize)
-#             axs[0].set_ylabel('m', fontsize=fontsize)
-#             axs[0].set_xlim(lmin, lmax)
-#             axs[0].set_ylim(mmin, mmax)
-#             axs[0].set_title('Real part', fontsize=fontsize)
-
-#             im1 = axs[1].scatter(ell, em, c=np.imag(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-#             fig.colorbar(im1, ax=axs[1])
-#             axs[1].set_xlabel(r'$\ell$', fontsize=fontsize)
-#             axs[1].set_ylabel('m', fontsize=fontsize)
-#             axs[1].set_xlim(lmin, lmax)
-#             axs[1].set_ylim(mmin, mmax)
-#             axs[1].set_title('Im part', fontsize=fontsize)
-
-#             im2 = axs[2].scatter(ell, em, c=np.abs(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-#             fig.colorbar(im2, ax=axs[2])
-#             axs[2].set_xlabel(r'$\ell$', fontsize=fontsize)
-#             axs[2].set_ylabel('m', fontsize=fontsize)
-#             axs[2].set_xlim(lmin, lmax)
-#             axs[2].set_ylim(mmin, mmax)
-#             axs[2].set_title('Amplitude', fontsize=fontsize)
-#             fig.tight_layout()
-#         return fig
