@@ -1,58 +1,54 @@
-# import matplotlib.pyplot as plt
-# from matplotlib.pyplot import cm
+import time
+import numpy as np
+import optax
+import jax
+import jax.numpy as jnp
+from jax import jit, grad
 
-# import scatcovjax.Wavelets_lib as wlib
-
-# """
-# This library is made to
-# - run a synthesis
-# - control the synthesis output with plots
-
-# !!! TO DO:
-# - see how it is implemented in Foscat to define a loss and run a synthesis
-# - see how to run an optimization in JAX
-# """
-
-# ############# PLOT TO CONTROL THE SYNTHESIS #################
+"""
+Few functions that can be used to run a synthesis.
+"""
 
 
-# def plot_loss(loss, figsize=(6, 4), fontsize=16, color='b', title=''):
-#     plt.figure(figsize=figsize)
-#     plt.plot(loss, 'o', color=color)
-#     plt.ylabel('Loss', fontsize=fontsize)
-#     plt.yscale('log')
-#     plt.xlabel('Iteration', fontsize=fontsize)
-#     plt.title(title)
-#     plt.grid()
-#     return
+def chi2(model, data):
+    return jnp.sum(jnp.abs(data-model)**2)
 
 
-# def plot_power_spectrum(target_Cl, ini_Cl, synthetic_Cl, J, filter_alm, m_MW, figsize=(10, 8), fontsize=16):
-#     plt.figure(figsize=figsize)
-#     plt.plot(target_Cl, 'b', label='Target')
-#     plt.plot(ini_Cl, 'g', label='Initial')
-#     plt.plot(synthetic_Cl, 'r', label='Synthesis')
-#     colors = cm.get_cmap('viridis', J).colors
-#     for j in range(J):
-#         c = colors[j]
-#         lmin_band, lmax_band = wlib.get_band_axisym_wavelet(filter_alm, m_MW, j_scale=j)
-#         plt.axvline(lmin_band, color=c, ls='--')
-#         plt.axvline(lmax_band, color=c, ls='--')
-#         plt.axvspan(lmin_band, lmax_band, color=c, alpha=0.1)
-#     plt.yscale('log')
-#     plt.xlabel(r'$\ell$', fontsize=fontsize)
-#     plt.ylabel(r'$C_\ell$', fontsize=fontsize)
-#     plt.grid()
-#     plt.legend(fontsize=fontsize)
-#     return
+def fit_brutal(params, loss_func, momentum: float = 2., niter: int = 10):
+    ### Gradient of the loss function
+    #grad_loss_func = jit(grad(func))
+    grad_loss_func = grad(loss_func)
+
+    loss_history = []
+    for i in range(niter):
+        start = time.time()
+        params -= momentum * np.conj(grad_loss_func(params))
+        if i % 1 == 0:
+            end = time.time()
+            loss_value = loss_func(params)
+            loss_history.append(loss_value)
+            print(f"Iter {i}: Loss = {loss_value:.5f}, Momentum = {momentum}, Time = {end - start:.2f} s/iter")
+
+    return params, loss_history
 
 
-# def plot_histo(target_hpx, synthetic_hpx, bins=50, range=(-5, 5), ymax=1300, fontsize=16):
-#     plt.figure(figsize=(10, 8))
-#     plt.hist(target_hpx.ravel(), bins=bins, range=range, color='b', alpha=0.3, label='Target')
-#     plt.hist(synthetic_hpx.ravel(), bins=bins, range=range, color='r', alpha=0.3, label='Synthesis')
-#     plt.legend(fontsize=fontsize)
-#     plt.ylim(0, ymax)
-#     plt.xlim(range)
-#     plt.grid()
-#     return
+def fit_optax(params: optax.Params, optimizer: optax.GradientTransformation, loss_func, niter : int =10) -> optax.Params:
+    opt_state = optimizer.init(params)
+
+    @jax.jit
+    def step(params, opt_state):
+        loss_value, grads = jax.value_and_grad(loss_func)(params)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
+        return params, opt_state, loss_value
+
+    loss_history = []
+    for i in range(niter):
+        start = time.time()
+        params, opt_state, loss_value = step(params, opt_state)
+        if i % 1 == 0:
+            loss_history.append(loss_value)
+            end = time.time()
+            print(f'Iter {i}, Loss: {loss_value:.5f}, Time = {end - start:.5f} s/iter')
+
+    return params, loss_history

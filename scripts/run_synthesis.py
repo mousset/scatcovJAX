@@ -1,6 +1,5 @@
 # Specify CUDA device
 from jax import jit, config
-
 config.update("jax_enable_x64", True)
 
 # Check we're running on GPU
@@ -10,12 +9,12 @@ print(xla_bridge.get_backend().platform)
 
 import os
 import argparse
-import time
 import numpy as np
-from jax import jit, grad
+
 import jax.numpy as jnp
 
 import scatcovjax.Sphere_lib as sphlib
+import scatcovjax.Synthesis_lib as synlib
 from scatcovjax.Scattering_lib import scat_cov_axi, scat_cov_dir
 from s2wav.filter_factory.filters import filters_directional_vectorised
 
@@ -56,11 +55,7 @@ momentum = 2.  # For gradient descent
 planet = 'venus'
 
 ###### Loss function
-def chi2(model, data):
-    return jnp.sum(jnp.abs(data - model) ** 2)
-
-
-def func(flm):
+def loss_func(flm):
     if axi:
         mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_axi(flm, L, N, J_min, sampling,
                                                                             None, reality, multiresolution,
@@ -70,20 +65,14 @@ def func(flm):
                                                                             None, reality, multiresolution,
                                                                             normalisation=None, filters=filters)
     # Control for mean + var
-    loss = chi2(mean, mean_new)
-    loss += chi2(var, var_new)
+    loss = synlib.chi2(mean, mean_new)
+    loss += synlib.chi2(var, var_new)
 
-    # Add S1 loss
-    loss += chi2(S1, S1_new)
-
-    # Add P00 loss
-    loss += chi2(P00, P00_new)
-
-    # Add C01 loss
-    loss += chi2(C01, C01_new)
-
-    # Add C11 loss
-    loss += chi2(C11, C11_new)
+    # Add S1, P00, C01, C11 losses
+    loss += synlib.chi2(S1, S1_new)
+    loss += synlib.chi2(P00, P00_new)
+    loss += synlib.chi2(C01, C01_new)
+    loss += synlib.chi2(C11, C11_new)
 
     return loss
 
@@ -117,23 +106,12 @@ if __name__ == "__main__":
     flm = flm[:, L - 1:] if reality else flm
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
-    loss_0 = func(flm_start)  # Compute the starting loss
+    # loss_0 = func(flm_start)  # Compute the starting loss
 
     ##### Run synthesis
-    print('\n============ Compute the loss gradient ===============')
-    # grad_func = jit(grad(func))  # Compute the loss gradient
-    grad_func = grad(func)
-
     print('\n============ Start the synthesis ===============')
-    loss_history = [loss_0]
-    for i in range(args.epochs):
-        start = time.time()
-        flm -= momentum * np.conj(grad_func(flm))
-        if i % 10 == 0:
-            end = time.time()
-            print(
-                f"Iteration {i}: Loss/Loss-0 = {func(flm):.5f}/{loss_0:.5f}, Momentum = {momentum}, Time = {end - start:.2f} s")
-            loss_history.append(func(flm))
+    # Naive implementation
+    flm, loss_history = synlib.fit_brutal(flm, loss_func, momentum=momentum, niter=args.epochs)
 
     ##### Store outputs
     print('\n ============ Store outputs ===============')
