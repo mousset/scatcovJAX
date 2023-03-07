@@ -93,11 +93,12 @@ if __name__ == "__main__":
     print('\n============ Make the target ===============')
     f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
     if axi:
-        tmean, tvar, tS1, tP00, tC01, tC11 = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
-                                                          reality, multiresolution, filters=filters)
+        tcoeffs = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
+                                reality, multiresolution, filters=filters)
     else:
-        tmean, tvar, tS1, tP00, tC01, tC11 = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
-                                                          reality, multiresolution, filters=filters)
+        tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
+                                reality, multiresolution, filters=filters)
+    tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs
 
     ##### Initial condition
     print('\n============ Build initial conditions ===============')
@@ -110,23 +111,32 @@ if __name__ == "__main__":
     ##### Run synthesis
     print('\n============ Start the synthesis ===============')
     # Naive implementation
-    flm, loss_history = synlib.fit_brutal(flm, loss_func, momentum=momentum, niter=args.epochs)
+    flm_end, loss_history = synlib.fit_brutal(flm, loss_func, momentum=momentum, niter=args.epochs)
+
+    ##### Compute again coefficients of start and end to be stored
+    print('\n============ Compute again coefficients of start and end  ===============')
+    if axi:
+        scoeffs = scat_cov_axi(flm_start, L, N, J_min, sampling, None,
+                                reality, multiresolution, filters=filters)
+        ecoeffs= scat_cov_axi(flm_end, L, N, J_min, sampling, None,
+                              reality, multiresolution, filters=filters)
+    else:
+        scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
+                                reality, multiresolution, filters=filters)
+        ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
+                                reality, multiresolution, filters=filters)
 
     ##### Store outputs
     print('\n ============ Store outputs ===============')
-    if reality:  # Get the full flm
-        flm_full_target = sphlib.make_flm_full(flm_target, L)
-        flm_full_start = sphlib.make_flm_full(flm_start, L)
-        flm_full_end = sphlib.make_flm_full(flm, L)
-    else:
-        flm_full_target = flm_target
-        flm_full_start = flm_start
-        flm_full_end = flm
-
     # Save the flm and the loss
-    np.save(args.save_dir + 'flm_target.npy', flm_full_target)
-    np.save(args.save_dir + 'flm_start.npy', flm_full_start)
-    np.save(args.save_dir + 'flm_end.npy', flm_full_end)
+    np.save(args.save_dir + 'flm_target.npy', flm_target)
+    np.save(args.save_dir + 'flm_start.npy', flm_start)
+    np.save(args.save_dir + 'flm_end.npy', flm_end)
     np.save(args.save_dir + 'loss.npy', loss_history)
+
+    # Save the coefficients
+    np.save(args.save_dir + 'coeffs_target.npy', tcoeffs)
+    np.save(args.save_dir + 'coeffs_start.npy', scoeffs)
+    np.save(args.save_dir + 'coeffs_end.npy', ecoeffs)
 
     print('\n ============ END ===============')
