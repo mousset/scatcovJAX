@@ -49,6 +49,7 @@ J = s2wav.utils.shapes.j_max(L)
 ########## DEFAULT PARAMETERS
 sampling = "mw"
 multiresolution = True
+normalisation = None
 reality = True
 J_min = 0
 momentum = 2.  # For gradient descent
@@ -59,11 +60,11 @@ def loss_func(flm):
     if axi:
         mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_axi(flm, L, N, J_min, sampling,
                                                                             None, reality, multiresolution,
-                                                                            normalisation=None, filters=filters)
+                                                                            normalisation, filters=filters)
     else:
         mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_dir(flm, L, N, J_min, sampling,
                                                                             None, reality, multiresolution,
-                                                                            normalisation=None, filters=filters)
+                                                                            normalisation, filters=filters)
     # Control for mean + var
     loss = synlib.chi2(tmean, mean_new)
     loss += synlib.chi2(tvar, var_new)
@@ -94,10 +95,10 @@ if __name__ == "__main__":
     f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
     if axi:
         tcoeffs = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
-                                reality, multiresolution, filters=filters)
+                                reality, multiresolution, normalisation, filters=filters)
     else:
         tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
-                                reality, multiresolution, filters=filters)
+                                reality, multiresolution, normalisation, filters=filters)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs
 
     ##### Initial condition
@@ -117,14 +118,14 @@ if __name__ == "__main__":
     print('\n============ Compute again coefficients of start and end  ===============')
     if axi:
         scoeffs = scat_cov_axi(flm_start, L, N, J_min, sampling, None,
-                                reality, multiresolution, filters=filters)
+                                reality, multiresolution, normalisation, filters=filters)
         ecoeffs= scat_cov_axi(flm_end, L, N, J_min, sampling, None,
-                              reality, multiresolution, filters=filters)
+                              reality, multiresolution, normalisation, filters=filters)
     else:
         scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
-                                reality, multiresolution, filters=filters)
+                                reality, multiresolution, normalisation, filters=filters)
         ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
-                                reality, multiresolution, filters=filters)
+                                reality, multiresolution, normalisation, filters=filters)
 
     ##### Store outputs
     print('\n ============ Store outputs ===============')

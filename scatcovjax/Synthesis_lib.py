@@ -16,8 +16,8 @@ def chi2(model, data):
 
 def fit_brutal(params, loss_func, momentum: float = 2., niter: int = 10):
     ### Gradient of the loss function
-    #grad_loss_func = jit(grad(func))
-    grad_loss_func = grad(loss_func)
+    grad_loss_func = jit(grad(loss_func))
+    # grad_loss_func = grad(loss_func)
 
     loss_history = []
     for i in range(niter):
