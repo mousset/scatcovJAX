@@ -65,14 +65,14 @@ def loss_func(flm):
                                                                             None, reality, multiresolution,
                                                                             normalisation=None, filters=filters)
     # Control for mean + var
-    loss = synlib.chi2(mean, mean_new)
-    loss += synlib.chi2(var, var_new)
+    loss = synlib.chi2(tmean, mean_new)
+    loss += synlib.chi2(tvar, var_new)
 
     # Add S1, P00, C01, C11 losses
-    loss += synlib.chi2(S1, S1_new)
-    loss += synlib.chi2(P00, P00_new)
-    loss += synlib.chi2(C01, C01_new)
-    loss += synlib.chi2(C11, C11_new)
+    loss += synlib.chi2(tS1, S1_new)
+    loss += synlib.chi2(tP00, P00_new)
+    loss += synlib.chi2(tC01, C01_new)
+    loss += synlib.chi2(tC11, C11_new)
 
     return loss
 
@@ -91,13 +91,13 @@ if __name__ == "__main__":
 
     ###### Target
     print('\n============ Make the target ===============')
-    I, Ilm = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
+    f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
     if axi:
-        mean, var, S1, P00, C01, C11 = scat_cov_axi(Ilm, L, N, J_min, sampling, None,
-                                                    reality, multiresolution, filters=filters)
+        tmean, tvar, tS1, tP00, tC01, tC11 = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
+                                                          reality, multiresolution, filters=filters)
     else:
-        mean, var, S1, P00, C01, C11 = scat_cov_dir(Ilm, L, N, J_min, sampling, None,
-                                                    reality, multiresolution, filters=filters)
+        tmean, tvar, tS1, tP00, tC01, tC11 = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
+                                                          reality, multiresolution, filters=filters)
 
     ##### Initial condition
     print('\n============ Build initial conditions ===============')
@@ -106,7 +106,6 @@ if __name__ == "__main__":
     flm = flm[:, L - 1:] if reality else flm
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
-    # loss_0 = func(flm_start)  # Compute the starting loss
 
     ##### Run synthesis
     print('\n============ Start the synthesis ===============')
@@ -116,18 +115,18 @@ if __name__ == "__main__":
     ##### Store outputs
     print('\n ============ Store outputs ===============')
     if reality:  # Get the full flm
-        flm_full_target = sphlib.make_flm_full(Ilm, L)
+        flm_full_target = sphlib.make_flm_full(flm_target, L)
         flm_full_start = sphlib.make_flm_full(flm_start, L)
         flm_full_end = sphlib.make_flm_full(flm, L)
     else:
-        flm_full_target = Ilm
+        flm_full_target = flm_target
         flm_full_start = flm_start
         flm_full_end = flm
 
     # Save the flm and the loss
-    np.save(args.save_dir + 'target_flm.npy', flm_full_target)
-    np.save(args.save_dir + 'initial_flm.npy', flm_full_start)
-    np.save(args.save_dir + 'output_flm.npy', flm_full_end)
+    np.save(args.save_dir + 'flm_target.npy', flm_full_target)
+    np.save(args.save_dir + 'flm_start.npy', flm_full_start)
+    np.save(args.save_dir + 'flm_end.npy', flm_full_end)
     np.save(args.save_dir + 'loss.npy', loss_history)
 
     print('\n ============ END ===============')
