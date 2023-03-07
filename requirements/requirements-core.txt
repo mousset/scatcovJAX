@@ -8,4 +8,5 @@ matplotlib
 astropy 
 scipy 
 Pillow
+optax
 
