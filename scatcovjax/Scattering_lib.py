@@ -4,6 +4,7 @@ config.update("jax_enable_x64", True)
 
 import numpy as np
 import jax.numpy as jnp
+import jax.lax as lax
 from functools import partial
 from typing import List, Tuple
 
@@ -11,7 +12,8 @@ import scatcovjax.Sphere_lib as sphlib
 import s2wav
 import s2fft
 
-# @partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
+
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
 def scat_cov_dir(
     Ilm_in: jnp.ndarray,
     L: int,
@@ -22,25 +24,34 @@ def scat_cov_dir(
     reality: bool = False,
     multiresolution: bool = False,
     normalisation: jnp.ndarray = None,
-    filters: Tuple[jnp.ndarray] = None,
+    filters: jnp.ndarray = None,
+    quads: List[jnp.ndarray] = None,
+    precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
+    J = s2wav.utils.shapes.j_max(L)
+
+    if quads is None:
+        quads = []
+        for j in range(J_min, J + 1):
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+
+    if precomps == None:
+        precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
+            L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
+        )
+
     if reality:
         Ilm = sphlib.make_flm_full(Ilm_in, L)
     else:
         Ilm = Ilm_in
-    
-    ######## Mean and variance of the data
-    # mean = < I >_omega = I_00/2sqrt(pi) # [Nimg]
-    mean = jnp.abs(
-        Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi))
-    )  
-    # var = Var(I) = <|I_lm|^2>_lm  # [Nimg]
-    var = jnp.mean(jnp.abs(Ilm[1:]) ** 2) 
 
-    multires = False if sampling.lower() == "healpix" else multiresolution
+    # Compute mean and variance
+    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))
+    var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)
 
-    # TODO: some normalisation
-    W, _ = s2wav.flm_to_analysis(
+    # Perform first (full-scale) wavelet transform
+    W = s2wav.flm_to_analysis(
         Ilm,
         L,
         N,
@@ -48,105 +59,98 @@ def scat_cov_dir(
         sampling=sampling,
         nside=nside,
         reality=reality,
-        multiresolution=multires,
+        multiresolution=multiresolution,
         filters=filters,
+        precomps=precomps
     )
 
-    J = s2wav.utils.shapes.j_max(L)
-
-    Njjprime = []
     S1 = []
     P00 = []
+    Njjprime = []
     for j in range(J_min, J + 1):
-        Lj, Nj, _ = s2wav.utils.shapes.LN_j(L, j, N, multiresolution=multires)
-
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
         Njjprime_for_j = []
-        for n in range(2*Nj-1):
-            M_lm = s2fft.forward_jax(
-                jnp.abs(W[j - J_min][n]),
-                Lj,
-                0,
-                sampling=sampling,
-                nside=nside,
-                reality=reality,
+        M_lm = jnp.zeros((2 * N - 1, Lj, 2 * Lj - 1), dtype=jnp.complex128)
+
+        def harmonic_step_for_j(n, args):
+            M_lm = args
+            M_lm = M_lm.at[n].add(
+                s2fft.forward_jax(
+                    jnp.abs(W[j - J_min][n]),
+                    Lj,
+                    0,
+                    sampling=sampling,
+                    nside=nside,
+                    reality=reality,
+                )
             )
+            return M_lm
 
-            # Compute S1
-            val = jnp.real(M_lm[0, Lj - 1]) / (2 * jnp.sqrt(jnp.pi))
-            if normalisation is not None:
-                val /= jnp.sqrt(normalisation[j - J_min])
-            S1.append(val)
+        M_lm = lax.fori_loop(0, 2 * N - 1, harmonic_step_for_j, M_lm)
 
-            # Compute P00
-            # The Lj/L term makes the mean comparable to the non-multiresolution mean.
-            val = jnp.mean(jnp.abs(M_lm) ** 2) 
-            val *= Lj / L    
-            if normalisation is not None:
-                val /= normalisation[j - J_min]
-            P00.append(val)
+        # Compute S1
+        val = jnp.abs(M_lm[:, 0, Lj - 1]) / (2 * jnp.sqrt(jnp.pi))
+        if normalisation is not None:
+            val /= jnp.sqrt(normalisation[j - J_min])
+        S1.append(val)
 
-            val, _ = s2wav.flm_to_analysis(
-                M_lm,
+        # Compute P00
+        val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
+        val *= Lj / L
+        if normalisation is not None:
+            val /= normalisation[j - J_min]
+        P00.append(val)
+
+        # TODO: This loop will increase compile time.
+        for n in range(2 * N - 1):
+            val = s2wav.flm_to_analysis(
+                M_lm[n],
                 Lj,
-                Nj,
+                N,
                 J_min,
+                J_max=j - 1,
                 sampling=sampling,
                 nside=nside,
                 reality=reality,
-                multiresolution=multires,
-                filters=(filters[0][:j-J_min+1, :Lj, L-Lj:L-1+Lj], filters[1])
+                multiresolution=multiresolution,
+                filters=filters[: j - J_min + 1, :Lj, L - Lj : L - 1 + Lj],
+                precomps=precomps[:j]
             )
             Njjprime_for_j.append(val)
         Njjprime.append(Njjprime_for_j)
 
-    quads = []
-    for j in range(J_min, J+1):
-        Lj, _, _ = s2wav.utils.shapes.LN_j(L, j, N, multiresolution=multiresolution)
-        quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+    # Reorder and flatten Njjprime, convert to JAX arrays for C01/C11
+    Njjprime_flat = []
+    for j1 in range(J_min, J):
+        Njjprime_flat_for_j2 = []
+        for j2 in range(j1 + 1, J + 1):
+            Njjprime_flat_for_n2 = []
+            for n2 in range(2 * N - 1):
+                Njjprime_flat_for_n2.append(Njjprime[j2 - J_min][n2][j1 - J_min])
+            Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)
+        Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))
 
+    # Indexing: a/b = j3/j2, j/k = n3/n2, n = n1, theta = t, phi = p
     C01 = []
-    for j3 in range(J_min + 1, J + 1):
-        _, N3j, _ = s2wav.utils.shapes.LN_j(L, j3, N, multiresolution=multiresolution)
-        for n3 in range(2*N3j-1):
-            for j2 in range(J_min, j3):
-                L2j, N2j, _ = s2wav.utils.shapes.LN_j(L, j2, N, multiresolution=multiresolution)
-                for n2 in range(2*N2j-1):
-                    val = W[j2-J_min][n2]
-                    val *= jnp.conj(Njjprime[j3-J_min][n3][j2-J_min][n2])
-                    if sampling.lower() == "healpix":
-                        val = jnp.sum(val * quads) #TODO: fix quad indexing for healpix multires.
-                    else:
-                        val = jnp.sum(jnp.einsum("tp,t->tp", val, quads[j2-J_min], optimize=True))
-                    
-                    if normalisation is not None:
-                        val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
-
-                    C01.append(val) 
-    
     C11 = []
-    for j3 in range(J_min + 2, J + 1):
-        _, N3j, _ = s2wav.utils.shapes.LN_j(L, j3, N, multiresolution=multiresolution)
-        for n3 in range(2*N3j-1):
-            for j2 in range(J_min + 1, j3):
-                _, N2j, _ = s2wav.utils.shapes.LN_j(L, j2, N, multiresolution=multiresolution)
+    for j1 in range(J_min, J):
+        # Compute C01
+        val = jnp.einsum(
+            "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min],optimize=True
+        )
+        val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min],optimize=True)
+        C01.append(val)
 
-                for n2 in range(2*N2j-1):
-                    for j1 in range(J_min, j2):
-                        L1j, N1j, _ = s2wav.utils.shapes.LN_j(L, j1, N, multiresolution=multiresolution)
-                        for n1 in range(2*N1j-1):
-                            val = Njjprime[j2-J_min][n2][j1-J_min][n1]
-                            val *= jnp.conj(Njjprime[j3-J_min][n3][j1-J_min][n1])
-                            if sampling.lower() == "healpix":
-                                val = jnp.sum(val * quads) #TODO: fix quad indexing for healpix multires.
-                            else:  
-                                val = jnp.sum(jnp.einsum("tp,t->tp", val, quads[j1-J_min], optimize=True))
+        # Compute C11
+        val = Njjprime_flat[j1 - J_min]
+        val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val),optimize=True)
+        val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min],optimize=True)
+        C11.append(val)
 
-                            if normalisation is not None:
-                                val /= jnp.sqrt(normalisation[j3 - J_min] * normalisation[j2 - J_min])
+    C01 = jnp.concatenate(C01, axis=None)
+    C11 = jnp.concatenate(C11, axis=None)
 
-                            C11.append(val) 
-                    
-    return mean, var, jnp.array(S1), jnp.array(P00), jnp.array(C01), jnp.array(C11)
+    return mean, var, jnp.concatenate(S1), jnp.concatenate(P00), C01, C11
 
 
 @partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
@@ -302,20 +306,57 @@ def scat_cov_axi(
     return mean, var, jnp.array(S1), jnp.array(P00), jnp.array(C01), jnp.array(C11)
 
 
-if __name__=="__main__":
+def quadrature(
+    L: int,
+    J_min: int = 0,
+    sampling: str = "mw",
+    nside: int = None,
+    multiresolution: bool = True,
+):
+    J = s2wav.utils.shapes.j_max(L)
+    quads = []
+    for j in range(J_min, J + 1):
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+        quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+    return quads
+
+
+if __name__ == "__main__":
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = ''
-    # Check we're running on GPU
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     from jax.lib import xla_bridge
+
     print(xla_bridge.get_backend().platform)
 
-    L = 32
+    L = 16
     N = 3
     J_min = 0
-    sampling="mw"
-    reality=True
-    multiresolution=True
-    filters = s2wav.filter_factory.filters.filters_directional_vectorised(L, N, J_min)
-    Ilm = np.random.randn(L, 2*L-1) + 1j*np.random.randn(L, 2*L-1)
+    sampling = "mw"
+    reality = True
+    multiresolution = True
 
-    mean, var, S1, P00, C01, C11 = scat_cov_dir(Ilm[:,L-1:], L, N, J_min, sampling, None, reality, multiresolution, filters=filters)
+    # Generate precomputed values
+    filters = s2wav.filter_factory.filters.filters_directional_vectorised(L, N, J_min)
+    weights = quadrature(L)
+    precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(L, N, J_min, 2.0, sampling, None, False, reality, multiresolution)
+
+    Ilm = np.random.randn(L, 2 * L - 1) + 1j * np.random.randn(L, 2 * L - 1)
+
+    mean, var, S1, P00, C01, C11 = scat_cov_dir(
+        Ilm[:, L - 1 :],
+        L,
+        N,
+        J_min,
+        sampling,
+        None,
+        reality,
+        multiresolution,
+        filters=filters[0],
+        quads=weights,
+        precomps=precomps,
+    )
+    print(f"S1 shape = {S1.shape}")
+    print(f"P00 shape = {P00.shape}")
+    print(f"C01 shape = {C01.shape}")
+    print(f"C11 shape = {C11.shape}")
