@@ -63,7 +63,6 @@ def scat_cov_dir(
         filters=filters,
         precomps=precomps
     )
-    print('Coucou', W.shape)
     S1 = []
     P00 = []
     Njjprime = []
