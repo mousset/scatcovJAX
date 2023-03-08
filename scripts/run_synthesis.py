@@ -56,6 +56,7 @@ momentum = 2.  # For gradient descent
 planet = 'venus'
 
 ###### Loss function
+@jit
 def loss_func(flm):
     if axi:
         mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_axi(flm, L, N, J_min, sampling,
@@ -88,11 +89,12 @@ if __name__ == "__main__":
 
     ###### Build filters
     print('\n============ Build the filters ===============')
-    filters = filters_directional_vectorised(L, N, J_min)
+    filters = filters_directional_vectorised(L, N, J_min)[0]
 
     ###### Target
     print('\n============ Make the target ===============')
-    f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
+    f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
+    # f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
     if axi:
         tcoeffs = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
                                 reality, multiresolution, normalisation, filters=filters)
