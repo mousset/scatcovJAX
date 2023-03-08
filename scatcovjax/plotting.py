@@ -72,64 +72,37 @@ def plot_filters(filters, real=True, m=None, figsize=(8, 6)):
     return fig
 
 
-def plot_alm(alm, s=10, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=None,
-             cmap='viridis', figsize=(12, 6), fontsize=16, real_part_only=False):
+def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=None,
+             cmap='viridis', figsize=(12, 6)):
     """
-    Plot the alm in the (l, m) plane. By default, it plots real part, imaginary part and amplitude.
-    TODO: Update because alm are 2D arrays now
-    Parameters
-    ----------
-    alm: tensor
-        alm hpx coefficients.
-    s: int
-        Size of the points.
-    real_part_only: bool
-        if True, only plot the real part.
-
-    Returns
-    -------
-
+    Plot the flm in the (l, m) plane.
+    flm: array
+        2D array [L, 2L-1]
     """
-    # ell, em = self.l_hpx, self.m_hpx
+    L = flm.shape[0]
 
-    if real_part_only:
-        fig, ax = plt.subplots(1, 1, figsize=figsize)
-        im0 = ax.scatter(ell, em, c=np.real(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-        fig.colorbar(im0, ax=ax)
-        ax.set_xlabel(r'$\ell$', fontsize=fontsize)
-        ax.set_ylabel('m', fontsize=fontsize)
-        ax.axis('scaled')
+    def for_all_plots(ax):
+        ax.set_xlabel(r'$\ell$')
+        ax.set_ylabel(r'$m$')
         ax.set_xlim(lmin, lmax)
         ax.set_ylim(mmin, mmax)
-        ax.set_title('Real part', fontsize=fontsize)
-        fig.tight_layout()
-    else:
-        fig, axs = plt.subplots(1, 3, figsize=figsize)
-        axs = np.ravel(axs)
-        im0 = axs[0].scatter(ell, em, c=np.real(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-        fig.colorbar(im0, ax=axs[0])
-        axs[0].set_xlabel(r'$\ell$', fontsize=fontsize)
-        axs[0].set_ylabel('m', fontsize=fontsize)
-        axs[0].set_xlim(lmin, lmax)
-        axs[0].set_ylim(mmin, mmax)
-        axs[0].set_title('Real part', fontsize=fontsize)
+        ax.plot(np.arange(L + 1), np.arange(L + 1), 'white')
+        ax.plot(np.arange(L + 1), -np.arange(L + 1), 'white')
+        ax.grid()
 
-        im1 = axs[1].scatter(ell, em, c=np.imag(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-        fig.colorbar(im1, ax=axs[1])
-        axs[1].set_xlabel(r'$\ell$', fontsize=fontsize)
-        axs[1].set_ylabel('m', fontsize=fontsize)
-        axs[1].set_xlim(lmin, lmax)
-        axs[1].set_ylim(mmin, mmax)
-        axs[1].set_title('Im part', fontsize=fontsize)
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=figsize)
 
-        im2 = axs[2].scatter(ell, em, c=np.abs(alm), s=s, cmap=cmap, vmin=vmin, vmax=vmax)
-        fig.colorbar(im2, ax=axs[2])
-        axs[2].set_xlabel(r'$\ell$', fontsize=fontsize)
-        axs[2].set_ylabel('m', fontsize=fontsize)
-        axs[2].set_xlim(lmin, lmax)
-        axs[2].set_ylim(mmin, mmax)
-        axs[2].set_title('Amplitude', fontsize=fontsize)
-        fig.tight_layout()
+    im0 = ax0.imshow(np.real(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
+    fig.colorbar(im0, ax=ax0)
+    ax0.set_title('Real part')
+    for_all_plots(ax0)
+
+    im1 = ax1.imshow(np.imag(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
+    fig.colorbar(im1, ax=ax1)
+    ax1.set_title('Imag part')
+    for_all_plots(ax1)
+
+    fig.tight_layout()
     return fig
 
 
