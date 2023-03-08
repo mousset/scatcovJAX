@@ -154,6 +154,35 @@ def make_MW_planet(L, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps
 
     return I, Ilm
 
+
+def make_MW_lensing(L, dirmap=dirname(dirname(__file__)) + '/texture_maps/raw_data/',
+                   normalize=False, reality=True):
+
+    if L in [256, 350, 400, 512]:
+        I = np.load(dirmap + f'CosmoML_shell_40_L_{L}.npy')
+    elif L < 256:
+        I = np.load(dirmap + f'CosmoML_shell_40_L_256.npy')
+        Ilm = s2fft.forward_jax(I, 256, reality=reality)
+        # Cut the Ilm at the L resolution
+        Ilm = Ilm[:L, 256 - L:256 + L - 1]  # [L, 2L-1]
+        # SHT inverse transform at L
+        I = s2fft.inverse_jax(Ilm, L, reality=reality)  # [Ntheta, 2Ntheta-1]
+    else:
+        raise ValueError('Wrong L value.')
+
+    if normalize:
+        I -= np.nanmean(I)
+        I /= np.nanstd(I)
+
+    # SHT forward transform at L
+    Ilm = s2fft.forward_jax(I, L, reality=reality)
+
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L-1:]  # [L, L]
+
+    return I, Ilm
+
 ############ OPERATIONS ON flm
 
 
