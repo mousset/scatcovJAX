@@ -4,14 +4,13 @@ config.update("jax_enable_x64", True)
 
 # Check we're running on GPU
 from jax.lib import xla_bridge
-
 print(xla_bridge.get_backend().platform)
 
 import os
 import argparse
 import numpy as np
-
 import jax.numpy as jnp
+import optax
 
 import scatcovjax.Sphere_lib as sphlib
 import scatcovjax.Synthesis_lib as synlib
@@ -52,10 +51,19 @@ multiresolution = True
 normalisation = None
 reality = True
 J_min = 0
-momentum = 2.  # For gradient descent
+momentum = 2.  # For naive gradient descent
+momentum_ps_only = 0.1
+learning_rate = 1e-1  # For optax gradient descent
+learning_rate_ps_only = 1e-3
+epochs_ps_only = 2
 planet = 'venus'
 
-###### Loss function
+###### Loss functions
+@jit
+def loss_func_ps_only(flm):
+    ps = jnp.sum(jnp.abs(flm) ** 2, axis=-1)
+    return jnp.sum(jnp.abs(ps - ps_target) ** 2)
+
 @jit
 def loss_func(flm):
     if axi:
@@ -100,6 +108,11 @@ if __name__ == "__main__":
     print('\n============ Make the target ===============')
     f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
     # f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
+
+    # Power spectrum of the target
+    ps_target = sphlib.compute_ps(flm_target)
+
+    # Scat coeffs S1, P00, C01, C11
     if axi:
         tcoeffs = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
                                 reality, multiresolution, normalisation, filters=filters)
@@ -110,15 +123,32 @@ if __name__ == "__main__":
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs
 
     print('\n============ Build initial conditions ===============')
+    # Gaussian white noise in pixel space
     f = np.random.randn(L, 2 * L - 1).astype(np.float64)
     flm = s2fft.forward_jax(f, L, reality=reality)
+
+    # Gaussian white noise in flm space TODO: This is wrong
+    # flm = np.random.randn(L, 2 * L - 1).astype(np.float64) + 1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
+
     flm = flm[:, L - 1:] if reality else flm
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
 
-    print('\n============ Start the synthesis ===============')
+    print('\n============ Start the synthesis on PS only ===============')
     # Naive implementation
-    flm_end, loss_history = synlib.fit_brutal(flm, loss_func, momentum=momentum, niter=args.epochs)
+    flm, loss_history = synlib.fit_brutal(flm, loss_func_ps_only,
+                                          momentum=momentum_ps_only, niter=epochs_ps_only, loss_history=None)
+    # Optax implementation
+    # optimizer = optax.adam(learning_rate_ps_only)
+    # flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func_ps_only, niter=epochs_ps_only, loss_history=None)
+
+    print('\n============ Start the synthesis on all coeffs ===============')
+    # Naive implementation
+    flm_end, loss_history = synlib.fit_brutal(flm, loss_func,
+                                              momentum=momentum, niter=args.epochs, loss_history=loss_history)
+    # Optax implementation
+    # optimizer = optax.adam(learning_rate)
+    # flm_end, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs, loss_history=loss_history)
 
     print('\n============ Compute again coefficients of start and end  ===============')
     if axi:
