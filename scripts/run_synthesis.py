@@ -15,7 +15,7 @@ import jax.numpy as jnp
 
 import scatcovjax.Sphere_lib as sphlib
 import scatcovjax.Synthesis_lib as synlib
-from scatcovjax.Scattering_lib import scat_cov_axi, scat_cov_dir
+from scatcovjax.Scattering_lib import scat_cov_axi, scat_cov_dir, quadrature
 from s2wav.filter_factory.filters import filters_directional_vectorised
 
 import s2fft
@@ -65,7 +65,8 @@ def loss_func(flm):
     else:
         mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_dir(flm, L, N, J_min, sampling,
                                                                             None, reality, multiresolution,
-                                                                            normalisation, filters=filters)
+                                                                            normalisation, filters=filters,
+                                                                            quads=weights, precomps=precomps)
     # Control for mean + var
     loss = synlib.chi2(tmean, mean_new)
     loss += synlib.chi2(tvar, var_new)
@@ -83,15 +84,19 @@ def loss_func(flm):
 
 
 if __name__ == "__main__":
-    ###### Print the parameters
     print('\n============ Parameters ===============')
     print(f'{axi=} , {L=}, {N=}, {J=}, {J_min=}, {reality=}, {planet=}')
 
-    ###### Build filters
     print('\n============ Build the filters ===============')
     filters = filters_directional_vectorised(L, N, J_min)[0]
 
-    ###### Target
+    print('\n============ Quadrature weihts ===============')
+    weights = quadrature(L, J_min, sampling, None, multiresolution)
+
+    print('\n============ Wigner precomputes ===============')
+    precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(L, N, J_min, 2.0, sampling, None, False,
+                                                                         reality, multiresolution)
+
     print('\n============ Make the target ===============')
     f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
     # f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
@@ -100,10 +105,10 @@ if __name__ == "__main__":
                                 reality, multiresolution, normalisation, filters=filters)
     else:
         tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
-                                reality, multiresolution, normalisation, filters=filters)
+                               reality, multiresolution, normalisation,
+                               filters=filters, quads=weights, precomps=precomps)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs
 
-    ##### Initial condition
     print('\n============ Build initial conditions ===============')
     f = np.random.randn(L, 2 * L - 1).astype(np.float64)
     flm = s2fft.forward_jax(f, L, reality=reality)
@@ -111,12 +116,10 @@ if __name__ == "__main__":
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
 
-    ##### Run synthesis
     print('\n============ Start the synthesis ===============')
     # Naive implementation
     flm_end, loss_history = synlib.fit_brutal(flm, loss_func, momentum=momentum, niter=args.epochs)
 
-    ##### Compute again coefficients of start and end to be stored
     print('\n============ Compute again coefficients of start and end  ===============')
     if axi:
         scoeffs = scat_cov_axi(flm_start, L, N, J_min, sampling, None,
@@ -125,11 +128,12 @@ if __name__ == "__main__":
                               reality, multiresolution, normalisation, filters=filters)
     else:
         scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
-                                reality, multiresolution, normalisation, filters=filters)
+                               reality, multiresolution, normalisation,
+                               filters=filters, quads=weights, precomps=precomps)
         ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
-                                reality, multiresolution, normalisation, filters=filters)
+                               reality, multiresolution, normalisation,
+                               filters=filters, quads=weights, precomps=precomps)
 
-    ##### Store outputs
     print('\n ============ Store outputs ===============')
     # Save the flm and the loss
     np.save(args.save_dir + 'flm_target.npy', flm_target)
