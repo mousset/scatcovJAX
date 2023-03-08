@@ -199,7 +199,7 @@ def make_flm_full(flm_half, L):
 
 
 def compute_ps(flm):
-    return jnp.sum(jnp.abs(flm)**2,axis=-1)
+    return jnp.sum(jnp.abs(flm)**2, axis=-1)
 
 # ############ AVERAGE, VARIANCE AND PS ON SPHERE
 # class Spherical_Compute():
