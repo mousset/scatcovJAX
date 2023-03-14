@@ -14,6 +14,68 @@ import s2fft
 
 
 @partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
+def get_P00only(
+    Ilm_in: jnp.ndarray,
+    L: int,
+    N: int,
+    J_min: int,
+    sampling: str = "mw",
+    nside: int = None,
+    reality: bool = False,
+    multiresolution: bool = False,
+    normalisation: jnp.ndarray = None,
+    filters: jnp.ndarray = None,
+    quads: List[jnp.ndarray] = None,
+    precomps: List[List[jnp.ndarray]] = None,
+) -> List[jnp.ndarray]:
+    J = s2wav.utils.shapes.j_max(L)
+
+    if quads is None:
+        quads = []
+        for j in range(J_min, J + 1):
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+
+    if precomps == None:
+        precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
+            L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
+        )
+
+    if reality:
+        Ilm = sphlib.make_flm_full(Ilm_in, L)
+    else:
+        Ilm = Ilm_in
+
+    # Perform first (full-scale) wavelet transform
+    W = s2wav.flm_to_analysis(
+        Ilm,
+        L,
+        N,
+        J_min,
+        sampling=sampling,
+        nside=nside,
+        reality=reality,
+        multiresolution=multiresolution,
+        filters=filters,
+        precomps=precomps
+    )
+    P00 = []
+    for j in range(J_min, J + 1):
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+
+        # Compute P00
+        val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
+        val *= Lj / L
+        P00.append(val)
+
+    P00 = jnp.concatenate(P00)
+    if normalisation is not None:
+        P00 /= normalisation
+
+    return P00
+
+
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
 def scat_cov_dir(
     Ilm_in: jnp.ndarray,
     L: int,
@@ -89,15 +151,11 @@ def scat_cov_dir(
 
         # Compute S1
         val = jnp.abs(M_lm[:, 0, Lj - 1]) / (2 * jnp.sqrt(jnp.pi))
-        if normalisation is not None:
-            val /= jnp.sqrt(normalisation[j - J_min])
         S1.append(val)
 
         # Compute P00
         val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
         val *= Lj / L
-        if normalisation is not None:
-            val /= normalisation[j - J_min]
         P00.append(val)
 
         # TODO: This loop will increase compile time.
@@ -135,21 +193,29 @@ def scat_cov_dir(
     for j1 in range(J_min, J):
         # Compute C01
         val = jnp.einsum(
-            "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min],optimize=True
+            "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min], optimize=True
         )
-        val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min],optimize=True)
+        val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min], optimize=True)
         C01.append(val)
 
         # Compute C11
         val = Njjprime_flat[j1 - J_min]
-        val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val),optimize=True)
-        val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min],optimize=True)
+        val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val), optimize=True)
+        val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min], optimize=True)
         C11.append(val)
 
+    # Make jnp array instead of list
+    S1 = jnp.concatenate(S1)
+    P00 = jnp.concatenate(P00)
     C01 = jnp.concatenate(C01, axis=None)
     C11 = jnp.concatenate(C11, axis=None)
 
-    return mean, var, jnp.concatenate(S1), jnp.concatenate(P00), C01, C11
+    # Normalize S1 and P00
+    if normalisation is not None:
+        S1 /= jnp.sqrt(normalisation)
+        P00 /= normalisation
+
+    return mean, var, S1, P00, C01, C11
 
 
 @partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
