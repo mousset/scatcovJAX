@@ -23,7 +23,7 @@ def fit_brutal(params, loss_func, momentum: float = 2., niter: int = 10, loss_hi
     for i in range(niter):
         start = time.time()
         params -= momentum * np.conj(grad_loss_func(params))
-        if i % 1 == 0:
+        if i % 10 == 0:
             end = time.time()
             loss_value = loss_func(params)
             loss_history.append(loss_value)
@@ -46,9 +46,9 @@ def fit_optax(params: optax.Params, optimizer: optax.GradientTransformation, los
         updates, opt_state = optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
         end = time.time()
-        if i % 1 == 0:
+        if i % 10 == 0:
             loss_value = loss_func(params)
             loss_history.append(loss_value)
-            print(f'Iter {i}, Loss: {loss_value:.5f}, Time = {end - start:.5f} s/iter')
+            print(f'Iter {i}, Loss: {loss_value:.10f}, Time = {end - start:.10f} s/iter')
 
     return params, loss_history
