@@ -14,7 +14,7 @@ import optax
 
 import scatcovjax.Sphere_lib as sphlib
 import scatcovjax.Synthesis_lib as synlib
-from scatcovjax.Scattering_lib import scat_cov_axi, scat_cov_dir, quadrature
+from scatcovjax.Scattering_lib import scat_cov_dir, quadrature, get_P00only
 from s2wav.filter_factory.filters import filters_directional_vectorised
 
 import s2fft
@@ -42,21 +42,22 @@ if not os.path.exists(args.save_dir):
 
 L = args.L
 N = args.N
-axi = True if N == 1 else False  # Axisym or directional
 J = s2wav.utils.shapes.j_max(L)
 
 ########## DEFAULT PARAMETERS
 sampling = "mw"
 multiresolution = True
-normalisation = None
 reality = True
 J_min = 0
-momentum = 2.  # For naive gradient descent
-momentum_ps_only = 0.1
-learning_rate = 1e-1  # For optax gradient descent
-learning_rate_ps_only = 1e-3
-epochs_ps_only = 2
-planet = 'venus'
+norm_P00_target = False
+# momentum = 2.  # For naive gradient descent
+# momentum_ps_only = 0.1
+learning_rate = 1e-2  # For optax gradient descent
+# learning_rate_ps_only = 1e-2
+# epochs_ps_only = 100
+learning_rate_P00_only = 1e-2
+epochs_P00_only = 100
+
 
 ###### Loss functions
 @jit
@@ -64,17 +65,23 @@ def loss_func_ps_only(flm):
     ps = jnp.sum(jnp.abs(flm) ** 2, axis=-1)
     return jnp.sum(jnp.abs(ps - ps_target) ** 2)
 
+
+@jit
+def loss_func_P00_only(flm):
+    P00_new = get_P00only(flm, L, N, J_min, sampling,
+                          None, reality, multiresolution,
+                          normalisation=norm, filters=filters,
+                          quads=weights, precomps=precomps)
+    loss = synlib.chi2(tP00, P00_new)
+    return loss
+
+
 @jit
 def loss_func(flm):
-    if axi:
-        mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_axi(flm, L, N, J_min, sampling,
-                                                                            None, reality, multiresolution,
-                                                                            normalisation, filters=filters)
-    else:
-        mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_dir(flm, L, N, J_min, sampling,
-                                                                            None, reality, multiresolution,
-                                                                            normalisation, filters=filters,
-                                                                            quads=weights, precomps=precomps)
+    mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_dir(flm, L, N, J_min, sampling,
+                                                                        None, reality, multiresolution,
+                                                                        normalisation=norm, filters=filters,
+                                                                        quads=weights, precomps=precomps)
     # Control for mean + var
     loss = synlib.chi2(tmean, mean_new)
     loss += synlib.chi2(tvar, var_new)
@@ -93,7 +100,7 @@ def loss_func(flm):
 
 if __name__ == "__main__":
     print('\n============ Parameters ===============')
-    print(f'{axi=} , {L=}, {N=}, {J=}, {J_min=}, {reality=}, {planet=}')
+    print(f'{L=}, {N=}, {J=}, {J_min=}, {reality=}')
 
     print('\n============ Build the filters ===============')
     filters = filters_directional_vectorised(L, N, J_min)[0]
@@ -110,16 +117,22 @@ if __name__ == "__main__":
     # f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
 
     # Power spectrum of the target
-    ps_target = sphlib.compute_ps(flm_target)
+    # ps_target = sphlib.compute_ps(flm_target)
+
+    # P00 of the target, used for normalisation
+    if norm_P00_target:
+        print("Normalize the coeffs by P00 target")
+        norm = get_P00only(flm_target, L, N, J_min, sampling, None,
+                            reality, multiresolution, normalisation=None, filters=filters)
+    else:
+        print("Coefficients are not normalized")
+        norm = None
 
     # Scat coeffs S1, P00, C01, C11
-    if axi:
-        tcoeffs = scat_cov_axi(flm_target, L, N, J_min, sampling, None,
-                                reality, multiresolution, normalisation, filters=filters)
-    else:
-        tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
-                               reality, multiresolution, normalisation,
-                               filters=filters, quads=weights, precomps=precomps)
+    # tP00 is one by definition of the normalisation
+    tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
+                           reality, multiresolution, normalisation=norm,
+                           filters=filters, quads=weights, precomps=precomps)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs
 
     print('\n============ Build initial conditions ===============')
@@ -134,35 +147,28 @@ if __name__ == "__main__":
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
 
-    print('\n============ Start the synthesis on PS only ===============')
-    # Naive implementation
-    flm, loss_history = synlib.fit_brutal(flm, loss_func_ps_only,
-                                          momentum=momentum_ps_only, niter=epochs_ps_only, loss_history=None)
-    # Optax implementation
-    # optimizer = optax.adam(learning_rate_ps_only)
+    # print('\n============ Start the synthesis on PS only ===============')
+    # print('Optimizer: FROMAGE')
+    # optimizer = optax.fromage(learning_rate_ps_only)
     # flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func_ps_only, niter=epochs_ps_only, loss_history=None)
 
+    print('\n============ Start the synthesis on P00 only ===============')
+    print('Optimizer: FROMAGE')
+    optimizer = optax.fromage(learning_rate_P00_only)
+    flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func_P00_only, niter=epochs_P00_only, loss_history=None)
+
     print('\n============ Start the synthesis on all coeffs ===============')
-    # Naive implementation
-    flm_end, loss_history = synlib.fit_brutal(flm, loss_func,
-                                              momentum=momentum, niter=args.epochs, loss_history=loss_history)
-    # Optax implementation
-    # optimizer = optax.adam(learning_rate)
-    # flm_end, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs, loss_history=loss_history)
+    print('Optimizer: FROMAGE')
+    optimizer = optax.fromage(learning_rate)
+    flm_end, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs, loss_history=loss_history)
 
     print('\n============ Compute again coefficients of start and end  ===============')
-    if axi:
-        scoeffs = scat_cov_axi(flm_start, L, N, J_min, sampling, None,
-                                reality, multiresolution, normalisation, filters=filters)
-        ecoeffs= scat_cov_axi(flm_end, L, N, J_min, sampling, None,
-                              reality, multiresolution, normalisation, filters=filters)
-    else:
-        scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
-                               reality, multiresolution, normalisation,
-                               filters=filters, quads=weights, precomps=precomps)
-        ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
-                               reality, multiresolution, normalisation,
-                               filters=filters, quads=weights, precomps=precomps)
+    scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
+                           reality, multiresolution, normalisation=norm,
+                           filters=filters, quads=weights, precomps=precomps)
+    ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
+                           reality, multiresolution, normalisation=norm,
+                           filters=filters, quads=weights, precomps=precomps)
 
     print('\n ============ Store outputs ===============')
     # Save the flm and the loss
