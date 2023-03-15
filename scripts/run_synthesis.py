@@ -56,7 +56,7 @@ learning_rate = 1e-2  # For optax gradient descent
 # learning_rate_ps_only = 1e-2
 # epochs_ps_only = 100
 learning_rate_P00_only = 1e-2
-epochs_P00_only = 100
+epochs_P00_only = 400
 
 
 ###### Loss functions
@@ -113,13 +113,20 @@ if __name__ == "__main__":
                                                                          reality, multiresolution)
 
     print('\n============ Make the target ===============')
+    ### Sky
     f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
-    # f_target, flm_target = sphlib.make_MW_planet(L, planet, normalize=True, reality=reality)
+    print('Target = LSS map')
 
-    # Power spectrum of the target
-    # ps_target = sphlib.compute_ps(flm_target)
+    # f_target, flm_target = sphlib.make_pysm_sky(L, 'cmb', sampling=sampling, nest=False, normalize=True, reality=reality)
+    # print('Target = CMB map')
 
-    # P00 of the target, used for normalisation
+    # f_target, flm_target = sphlib.make_planet(L, planet, normalize=True, reality=reality)
+    # print('Target = Planet map')
+
+    ### Power spectrum of the target
+    ps_target = sphlib.compute_ps(flm_target)
+
+    ### P00 of the target, used for normalisation
     if norm_P00_target:
         print("Normalize the coeffs by P00 target")
         norm = get_P00only(flm_target, L, N, J_min, sampling, None,
@@ -128,7 +135,7 @@ if __name__ == "__main__":
         print("Coefficients are not normalized")
         norm = None
 
-    # Scat coeffs S1, P00, C01, C11
+    ### Scat coeffs S1, P00, C01, C11
     # tP00 is one by definition of the normalisation
     tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
                            reality, multiresolution, normalisation=norm,
@@ -137,12 +144,17 @@ if __name__ == "__main__":
 
     print('\n============ Build initial conditions ===============')
     # Gaussian white noise in pixel space
-    f = np.random.randn(L, 2 * L - 1).astype(np.float64)
+    print('White noise MW pixel space with the STD of the target')
+    f = np.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64)
     flm = s2fft.forward_jax(f, L, reality=reality)
 
-    # Gaussian white noise in flm space TODO: This is wrong
-    # flm = np.random.randn(L, 2 * L - 1).astype(np.float64) + 1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
+    # Gaussian white noise in flm space !!! This is wrong
+    # print('White noise flm')
+    # scaling = np.sqrt(ps_target)[-1] / 10  # just to scale the flm
+    # flm = scaling * (np.random.randn(L, 2 * L - 1).astype(np.float64) +
+    #                  1j * np.random.randn(L, 2 * L - 1).astype(np.float64))
 
+    # Cut the flm
     flm = flm[:, L - 1:] if reality else flm
 
     flm_start = jnp.copy(flm)  # Save the start point as we will iterate on flm
@@ -160,7 +172,9 @@ if __name__ == "__main__":
     print('\n============ Start the synthesis on all coeffs ===============')
     print('Optimizer: FROMAGE')
     optimizer = optax.fromage(learning_rate)
-    flm_end, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs, loss_history=loss_history)
+    flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs, loss_history=loss_history)
+
+    flm_end = jnp.copy(flm)
 
     print('\n============ Compute again coefficients of start and end  ===============')
     scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
