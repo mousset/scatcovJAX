@@ -64,11 +64,13 @@ def get_P00only(
         Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
 
         # Compute P00
+        # W[j - J_min] = [Lj, 2Lj-1]
         val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
+        #val = jnp.sum(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2)) / (4 * np.pi)
         val *= Lj / L
         P00.append(val)
 
-    P00 = jnp.concatenate(P00)
+    P00 = jnp.concatenate(P00)  # [J]
     if normalisation is not None:
         P00 /= normalisation
 
@@ -90,6 +92,7 @@ def scat_cov_dir(
     quads: List[jnp.ndarray] = None,
     precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
+    # TODO: change J in Jmax
     J = s2wav.utils.shapes.j_max(L)
 
     if quads is None:
@@ -104,15 +107,17 @@ def scat_cov_dir(
         )
 
     if reality:
-        Ilm = sphlib.make_flm_full(Ilm_in, L)
+        Ilm = sphlib.make_flm_full(Ilm_in, L)  # [L, 2L-1]
     else:
-        Ilm = Ilm_in
+        Ilm = Ilm_in  # [L, 2L-1]
 
     # Compute mean and variance
-    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))
-    var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)
+    mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))  # Take the I_00
+    # var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)
+    var = jnp.sum(jnp.abs(Ilm[1:]) ** 2) / (4 * np.pi)  # Sum all except the (l=0, m=0) term
 
     # Perform first (full-scale) wavelet transform
+    # W is a list of J elements with shape [Norient, Ntheta, Nphi]=[2N-1, L, 2L-1]
     W = s2wav.flm_to_analysis(
         Ilm,
         L,
@@ -125,13 +130,14 @@ def scat_cov_dir(
         filters=filters,
         precomps=precomps
     )
+
+    # Initialize S1, P00, Njjprime: will be list of len J
     S1 = []
     P00 = []
     Njjprime = []
     for j in range(J_min, J + 1):
         Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
         Njjprime_for_j = []
-        M_lm = jnp.zeros((2 * N - 1, Lj, 2 * Lj - 1), dtype=jnp.complex128)
 
         def harmonic_step_for_j(n, args):
             M_lm = args
@@ -146,15 +152,19 @@ def scat_cov_dir(
                 )
             )
             return M_lm
-
-        M_lm = lax.fori_loop(0, 2 * N - 1, harmonic_step_for_j, M_lm)
+        
+        # Compute M_lm 
+        M_lm = jnp.zeros((2 * N - 1, Lj, 2 * Lj - 1), dtype=jnp.complex128)  # [Norient, Lj, M]
+        M_lm = lax.fori_loop(0, 2 * N - 1, harmonic_step_for_j, M_lm)  # [Norient, Lj, M]
 
         # Compute S1
-        val = jnp.abs(M_lm[:, 0, Lj - 1]) / (2 * jnp.sqrt(jnp.pi))
+        # Take the value at (l=0, m=0=Lj-1)
+        val = M_lm[:, 0, Lj - 1] / (2 * jnp.sqrt(jnp.pi))  # [Norient]
         S1.append(val)
 
         # Compute P00
         val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
+        #val = jnp.sum(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2)) / (4 * np.pi)
         val *= Lj / L
         P00.append(val)
 
@@ -173,6 +183,8 @@ def scat_cov_dir(
                 filters=filters[: j - J_min + 1, :Lj, L - Lj : L - 1 + Lj],
                 precomps=precomps[:j]
             )
+            if n == 0:
+                print(len(val), val[0].shape)
             Njjprime_for_j.append(val)
         Njjprime.append(Njjprime_for_j)
 
@@ -196,12 +208,14 @@ def scat_cov_dir(
             "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min], optimize=True
         )
         val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min], optimize=True)
+        #print(val.shape)
         C01.append(val)
 
         # Compute C11
         val = Njjprime_flat[j1 - J_min]
         val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val), optimize=True)
         val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min], optimize=True)
+        print(val.shape)
         C11.append(val)
 
     # Make jnp array instead of list
