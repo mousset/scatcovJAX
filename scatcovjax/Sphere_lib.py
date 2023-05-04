@@ -130,7 +130,10 @@ def make_pysm_sky(L, sky_type, sampling='mw', nest=False, normalize=False, reali
 
 def make_planet(L, planet, sampling='mw', nside=None, nest=False, dirmap=dirname(dirname(__file__)) + '/texture_maps',
                 normalize=False, reality=True):
-
+    """
+    Make a planet map.
+    If sampling='mw', the map is a 2D array [Ntheta, Nphi]=[L, 2L-1]
+    """
     # Load the JPG map
     grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
     I = pil_to_array(grayscale_pil_image).astype(np.float64)
