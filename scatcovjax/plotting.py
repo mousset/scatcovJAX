@@ -25,7 +25,8 @@ def plot_map_MW_Mollweide(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=
     im = ax.imshow(np.real(map_MW), transform=ccrs.PlateCarree(),
                    vmin=vmin, vmax=vmax)
     ax.set_title(title, fontsize=fontsize)
-    fig.colorbar(im, ax=ax, orientation='horizontal')
+    #fig.colorbar(im, ax=ax, orientation='horizontal')
+    fig.tight_layout()
     return
 
 
@@ -106,7 +107,7 @@ def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=No
     return fig
 
 
-def plot_scatcov_coeffs(S1, P00, C01, C11, name=None, hold=True, color='blue', lw=1):
+def plot_scatcov_coeffs(S1, P00, C01, C11, name=None, hold=True, color='blue', ls='-', marker=''):
 
     if name is None:
         name = ''
@@ -115,19 +116,19 @@ def plot_scatcov_coeffs(S1, P00, C01, C11, name=None, hold=True, color='blue', l
         plt.figure(figsize=(8, 8))
 
     plt.subplot(2, 2, 1)
-    plt.plot(np.real(S1), color=color, label=f'{name} ' + r'$S_1$', lw=lw)
+    plt.plot(np.real(S1), color=color, label=f'{name} ' + r'$S_1$', ls=ls, marker=marker)
     plt.legend()
 
     plt.subplot(2, 2, 2)
-    plt.plot(np.real(P00), color=color, label=f'{name} ' + r'$P_{00}$', lw=lw)
+    plt.plot(np.real(P00), color=color, label=f'{name} ' + r'$P_{00}$', ls=ls, marker=marker)
     plt.legend()
 
     plt.subplot(2, 2, 3)
-    plt.plot(np.real(C01), color=color, label=f'{name} ' + r'$C_{01}$', lw=lw)
+    plt.plot(np.real(C01), color=color, label=f'{name} ' + r'$C_{01}$', ls=ls, marker=marker)
     plt.legend()
 
     plt.subplot(2, 2, 4)
-    plt.plot(np.real(C11), color=color, label=f'{name} ' + r'$C_{11}$', lw=lw)
+    plt.plot(np.real(C11), color=color, label=f'{name} ' + r'$C_{11}$', ls=ls, marker=marker)
     plt.legend()
 
     return
