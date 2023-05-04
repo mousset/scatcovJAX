@@ -56,7 +56,7 @@ learning_rate = 1e-2  # For optax gradient descent
 # learning_rate_ps_only = 1e-2
 # epochs_ps_only = 100
 learning_rate_P00_only = 1e-2
-epochs_P00_only = 400
+epochs_P00_only = 100
 
 
 ###### Loss functions
@@ -145,14 +145,10 @@ if __name__ == "__main__":
     print('\n============ Build initial conditions ===============')
     # Gaussian white noise in pixel space
     print('White noise MW pixel space with the STD of the target')
+    # If the target map is normalized, we should have tvar = 1.
+    print(f'{tvar=}')
     f = np.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64)
     flm = s2fft.forward_jax(f, L, reality=reality)
-
-    # Gaussian white noise in flm space !!! This is wrong
-    # print('White noise flm')
-    # scaling = np.sqrt(ps_target)[-1] / 10  # just to scale the flm
-    # flm = scaling * (np.random.randn(L, 2 * L - 1).astype(np.float64) +
-    #                  1j * np.random.randn(L, 2 * L - 1).astype(np.float64))
 
     # Cut the flm
     flm = flm[:, L - 1:] if reality else flm
