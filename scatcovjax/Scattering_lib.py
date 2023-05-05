@@ -88,23 +88,26 @@ def scat_cov_dir(
     reality: bool = False,
     multiresolution: bool = False,
     normalisation: jnp.ndarray = None,
-    filters: jnp.ndarray = None,
+    filters: jnp.ndarray = None,  # [J, L, 2L-1]
     quads: List[jnp.ndarray] = None,
     precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
-    # TODO: change J in Jmax
-    J = s2wav.utils.shapes.j_max(L)
+
+    J_max = s2wav.utils.shapes.j_max(L)  # Maximum scale
+    J = J_max - J_min + 1  # Number of scales
+    print(f'{J=}')
 
     if quads is None:
         quads = []
-        for j in range(J_min, J + 1):
+        for j in range(J_min, J_max + 1):
             Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
             quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
 
     if precomps == None:
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
             L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
-        )
+        )  # [J][J][...]
+    print('precomps', len(precomps), len(precomps[0]), precomps[0][0].shape, precomps[0][-1].shape)
 
     if reality:
         Ilm = sphlib.make_flm_full(Ilm_in, L)  # [L, 2L-1]
@@ -116,8 +119,7 @@ def scat_cov_dir(
     # var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)
     var = jnp.sum(jnp.abs(Ilm[1:]) ** 2) / (4 * np.pi)  # Sum all except the (l=0, m=0) term
 
-    # Perform first (full-scale) wavelet transform
-    # W is a list of J elements with shape [Norient, Ntheta, Nphi]=[2N-1, L, 2L-1]
+    ### Perform first (full-scale) wavelet transform W_jgamma = I * Psi_jgamma
     W = s2wav.flm_to_analysis(
         Ilm,
         L,
@@ -129,17 +131,26 @@ def scat_cov_dir(
         multiresolution=multiresolution,
         filters=filters,
         precomps=precomps
-    )
+    )  # [J][Norient, Ntheta, Nphi]=[J][2N-1, L, 2L-1]
+    print('W', len(W))
 
     # Initialize S1, P00, Njjprime: will be list of len J
     S1 = []
     P00 = []
     Njjprime = []
-    for j in range(J_min, J + 1):
-        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+    for j in range(J_min, J_max + 1):
+        print(f'\n {j=}')
+        # Subsampling: the resolution in the plane (l, m) is adapted at each scale j
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)  # Band limit at resolution j
+        Jmaxj = s2wav.utils.shapes.j_max(Lj)
+        Jj = Jmaxj - J_min + 1  # Number of scales
+        print(f'{Lj=}')
+        print(f'{Jmaxj=}')
+        print(f'{Jj=}')
         Njjprime_for_j = []
 
         def harmonic_step_for_j(n, args):
+            """Compute M_lm = |W|_lm for one orientation [Lj, Mj] = [Lj, 2Lj-1]"""
             M_lm = args
             M_lm = M_lm.at[n].add(
                 s2fft.forward_jax(
@@ -152,82 +163,89 @@ def scat_cov_dir(
                 )
             )
             return M_lm
-        
-        # Compute M_lm 
-        M_lm = jnp.zeros((2 * N - 1, Lj, 2 * Lj - 1), dtype=jnp.complex128)  # [Norient, Lj, M]
-        M_lm = lax.fori_loop(0, 2 * N - 1, harmonic_step_for_j, M_lm)  # [Norient, Lj, M]
 
-        # Compute S1
-        # Take the value at (l=0, m=0=Lj-1)
+        ### Compute M_lm for all orientations
+        # Initialization
+        M_lm = jnp.zeros((2 * N - 1, Lj, 2 * Lj - 1), dtype=jnp.complex128)  # [Norient, Lj, Mj]
+        # Loop on orientations
+        M_lm = lax.fori_loop(0, 2 * N - 1, harmonic_step_for_j, M_lm)  # [Norient, Lj, Mj]
+
+        ### Compute S1
+        # Take the value at (l=0, m=0) which corresponds to indices (0, Lj-1)
         val = M_lm[:, 0, Lj - 1] / (2 * jnp.sqrt(jnp.pi))  # [Norient]
-        S1.append(val)
+        S1.append(val)  # [J][Norient]
 
-        # Compute P00
-        val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
+        ### Compute P00
+        # Average over Thetas, Phis
+        val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))  # [Norient]
         #val = jnp.sum(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2)) / (4 * np.pi)
-        val *= Lj / L
-        P00.append(val)
+        val *= Lj / L  # Normalization so that for each scale j, we divide by L, not Lj
+        P00.append(val)  # [J][Norient]
 
+        ### Compute Njjprime
         # TODO: This loop will increase compile time.
-        for n in range(2 * N - 1):
+        #print('Jj', j-J_min+1)
+        for n in range(2 * N - 1):  # Loop on orientations
+            # Wavelet transform of Mlm
             val = s2wav.flm_to_analysis(
                 M_lm[n],
                 Lj,
                 N,
                 J_min,
-                J_max=j - 1,
+                J_max=j-1,  # TODO ?? Pourquoi pas Jmaxj ?
                 sampling=sampling,
                 nside=nside,
                 reality=reality,
                 multiresolution=multiresolution,
-                filters=filters[: j - J_min + 1, :Lj, L - Lj : L - 1 + Lj],
-                precomps=precomps[:j]
-            )
-            if n == 0:
-                print(len(val), val[0].shape)
-            Njjprime_for_j.append(val)
-        Njjprime.append(Njjprime_for_j)
+                filters=filters[: j-J_min+1, :Lj, L - Lj: L - 1 + Lj],  # TODO??  Pourquoi pas [J_min: Jmaxj + 1]
+                precomps=precomps[:j]  # TODO ?? Pourquoi pas [J_min: Jmaxj + 1]
+            )  # [Jj][Norient, Nthetaj, Nphij]
+            print('val', len(val), val[j].shape)
+            Njjprime_for_j.append(val)  # [Norient][Jj][Norient, Nthetaj, Nphij]
+        print('Njjprime_for_j', len(Njjprime_for_j), len(Njjprime_for_j[-1]), Njjprime_for_j[0][0].shape)
+        Njjprime.append(Njjprime_for_j)  # [J][Norient][Jj][Norient, Nthetaj, Nphij]
 
-    # Reorder and flatten Njjprime, convert to JAX arrays for C01/C11
+    ### Reorder and flatten Njjprime, convert to JAX arrays for C01/C11
     Njjprime_flat = []
-    for j1 in range(J_min, J):
+    for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1 TODO ?? Pourquoi pas Jmax+1? parce que dans le boucle suivante si j1=Jmax il ne se passe rien
         Njjprime_flat_for_j2 = []
-        for j2 in range(j1 + 1, J + 1):
+        for j2 in range(j1 + 1, J_max + 1):  # j1+1 <= j2 <= J_max
             Njjprime_flat_for_n2 = []
             for n2 in range(2 * N - 1):
-                Njjprime_flat_for_n2.append(Njjprime[j2 - J_min][n2][j1 - J_min])
-            Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)
-        Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))
+                Njjprime_flat_for_n2.append(Njjprime[j2 - J_min][n2][j1 - J_min][:, :, :])  # [Norient2][Norient1, Nthetaj1, Nphij1]
+            Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)  # [Jj2][Norient2][Norient1, Nthetaj1, Nphij1]
+        Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))  # [J-1][Jj2, Norient2, Norient1, Nthetaj1, Nphij1]
+    print('Njjprime_flat', len(Njjprime_flat), Njjprime_flat[0].shape, Njjprime_flat[-1].shape)
 
+    ### Compute C01 and C11
     # Indexing: a/b = j3/j2, j/k = n3/n2, n = n1, theta = t, phi = p
     C01 = []
     C11 = []
-    for j1 in range(J_min, J):
+    for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1
         # Compute C01
         val = jnp.einsum(
             "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min], optimize=True
         )
         val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min], optimize=True)
-        #print(val.shape)
-        C01.append(val)
+        C01.append(val)  # [J1-1][J3, Norient3, Norient1]
 
         # Compute C11
         val = Njjprime_flat[j1 - J_min]
         val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val), optimize=True)
         val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min], optimize=True)
-        print(val.shape)
-        C11.append(val)
+        C11.append(val)  # [J1-1][J3, J2, Norient3, Norient2, Norient1]
 
-    # Make jnp array instead of list
-    S1 = jnp.concatenate(S1)
-    P00 = jnp.concatenate(P00)
-    C01 = jnp.concatenate(C01, axis=None)
-    C11 = jnp.concatenate(C11, axis=None)
-
-    # Normalize S1 and P00
-    if normalisation is not None:
-        S1 /= jnp.sqrt(normalisation)
-        P00 /= normalisation
+    ### Make jnp array instead of list
+    # S1 = jnp.concatenate(S1)  # [NS1] = [Norient x J]
+    # P00 = jnp.concatenate(P00)  # [NP00] = [Norient x J]
+    # C01 = jnp.concatenate(C01, axis=None)  # [NC01]
+    # C11 = jnp.concatenate(C11, axis=None)  # [NC11]
+    # print('S1, P00, C01, C11', S1.shape, P00.shape, C01.shape, C11.shape)
+    #
+    # ### Normalize S1 and P00
+    # if normalisation is not None:
+    #     S1 /= jnp.sqrt(normalisation)
+    #     P00 /= normalisation
 
     return mean, var, S1, P00, C01, C11
 
