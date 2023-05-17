@@ -13,7 +13,7 @@ import s2wav
 import s2fft
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7))
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8))
 def get_P00only(
     Ilm_in: jnp.ndarray,
     L: int,
@@ -23,30 +23,39 @@ def get_P00only(
     nside: int = None,
     reality: bool = False,
     multiresolution: bool = False,
-    normalisation: jnp.ndarray = None,
+    for_synthesis: bool = False,
     filters: jnp.ndarray = None,
+    normalisation: jnp.ndarray = None,
     quads: List[jnp.ndarray] = None,
-    precomps: List[List[jnp.ndarray]] = None,
+    precomps: List[List[jnp.ndarray]] = None
 ) -> List[jnp.ndarray]:
-    J = s2wav.utils.shapes.j_max(L)
 
+    J_max = s2wav.utils.shapes.j_max(L)  # Maximum scale
+    # J = J_max - J_min + 1  # Number of scales used
+    # !!! Whatever is J_min, the shape of filter is [J_max+1, L, 2L-1] (starting from 0, not J_min)
+
+    # Quadrature weights to make spherical integral
+    # They can be computed outside and pass to the function as an argument (avoid many computations.)
     if quads is None:
         quads = []
-        for j in range(J_min, J + 1):
+        for j in range(J_min, J_max + 1):
             Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
-            quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
+            quads.append(s2fft.quadrature_jax.quad_weights(Lj, sampling, nside))  # [J][Lj]
 
+    # Part of the Wigner transform that can be computed just once.
+    # It can be computed outside and pass to the function as an argument (avoid many computations.)
     if precomps == None:
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
             L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
-        )
+        )  # [J][J_max+1][?]
 
+    # If the map is real (only m>0 stored) so we create the (m<0) part.
     if reality:
-        Ilm = sphlib.make_flm_full(Ilm_in, L)
+        Ilm = sphlib.make_flm_full(Ilm_in, L)  # [L, 2L-1]
     else:
-        Ilm = Ilm_in
+        Ilm = Ilm_in  # [L, 2L-1]
 
-    # Perform first (full-scale) wavelet transform
+    ### Perform first (full-scale) wavelet transform W_j2 = I * Psi_j2
     W = s2wav.flm_to_analysis(
         Ilm,
         L,
@@ -58,21 +67,28 @@ def get_P00only(
         multiresolution=multiresolution,
         filters=filters,
         precomps=precomps
-    )
+    )  # [J2][Norient2, Nthetaj2, Nphij2]=[J][2N-1, Lj, 2Lj-1]
+
     P00 = []
-    for j in range(J_min, J + 1):
-        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+    for j2 in range(J_min, J_max + 1):
+        # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
+        Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, 2.0, multiresolution)  # Band limit at resolution j2
+        print(f'\n {j2=} {Lj2=}')
 
-        # Compute P00
-        # W[j - J_min] = [Lj, 2Lj-1]
-        val = jnp.mean(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2))
-        #val = jnp.sum(jnp.abs(W[j - J_min]) ** 2, axis=(-1, -2)) / (4 * np.pi)
-        val *= Lj / L
-        P00.append(val)
+        ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
+        # Average over theta phi with quadrature weights
+        val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
+                      * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        P00.append(val)  # [J2][Norient2]
 
-    P00 = jnp.concatenate(P00)  # [J]
+    ### Normalize P00
     if normalisation is not None:
-        P00 /= normalisation
+        for j2 in range(J_min, J_max + 1):
+            P00[j2 - J_min] /= normalisation[j2 - J_min]
+
+    ### Make 1D jnp arrays instead of list (for synthesis)
+    if for_synthesis:
+        P00 = jnp.concatenate(P00)  # [NP00] = [Norient x J]
 
     return P00
 
@@ -104,9 +120,7 @@ def scat_cov_dir(
         quads = []
         for j in range(J_min, J_max + 1):
             Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
-            print('Lj', Lj)
             quads.append(s2fft.quadrature_jax.quad_weights(Lj, sampling, nside))  # [J][Lj]
-    print('quad', len(quads), quads[0].shape, quads[1].shape)
 
     # Part of the Wigner transform that can be computed just once.
     # It can be computed outside and pass to the function as an argument (avoid many computations.)
@@ -114,7 +128,6 @@ def scat_cov_dir(
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
             L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
         )  # [J][J_max+1][?]
-    print('precomps', len(precomps), len(precomps[0]), precomps[0][0].shape, precomps[0][-1].shape)
 
     # If the map is real (only m>0 stored), we create the (m<0) part.
     if reality:
@@ -123,7 +136,6 @@ def scat_cov_dir(
         Ilm = Ilm_in  # [L, 2L-1]
 
     ### Mean and Variance
-    # Todo!! Je pense que les normalisations sont ok ici
     mean = jnp.abs(Ilm[0, L - 1] / (2 * jnp.sqrt(jnp.pi)))  # Take the I_00
     # Compute |Ilm|^2 = Ilm x Ilm*
     Ilm_square = Ilm * jnp.conj(Ilm)
@@ -143,18 +155,16 @@ def scat_cov_dir(
         filters=filters,
         precomps=precomps
     )  # [J2][Norient2, Nthetaj2, Nphij2]=[J][2N-1, Lj, 2Lj-1]
-    print('W', len(W), W[0].shape, W[-1].shape)
+    #print('W', len(W), W[0].shape, W[-1].shape)
 
     # Initialize S1, P00, Njjprime: will be list of len J
     S1 = []
     P00 = []
     Njjprime = []
     for j2 in range(J_min, J_max + 1):
-        print(f'\n {j2=}')
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
         Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, 2.0, multiresolution)  # Band limit at resolution j2
-        print(f'{Lj2=}')
-        Njjprime_for_j2 = []
+        print(f'\n {j2=} {Lj2=}')
 
         def modulus_step_for_j(n, args):
             """
@@ -182,20 +192,19 @@ def scat_cov_dir(
 
         ### Compute S1_j2 = < M_lm >_j2
         # Take the value at (l=0, m=0) which corresponds to indices (0, Lj2-1)
-        # Todo!! A priori ok
         val = M_lm_j2[:, 0, Lj2 - 1] / (2 * jnp.sqrt(jnp.pi))  # [Norient2]
         S1.append(val)  # [J2][Norient2]
 
-        ### Compute P00_j2 = < |M_lm|^2 >_j2
-        # Average over lm (Parseval)
-        # Todo!!
+        ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
+        # Average over theta phi (Parseval)
+        val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
+                      * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        # Other way: average over lm (Parseval) : P00_j2 = < |M_lm|^2 >_j2 (does not give exactly the same)
         # val = jnp.sum(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
-        # print('P00 1st way', val)
-        val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2) * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)
-        print('P00 2nd way', val)
         P00.append(val)  # [J2][Norient2]
 
         ### Compute Njjprime
+        Njjprime_for_j2 = []
         # TODO: This loop will increase compile time.
         for n in range(2 * N - 1):  # Loop on orientations
             # Wavelet transform of Mlm: Nj1j2 = M_j2 * Psi_j1
@@ -212,13 +221,10 @@ def scat_cov_dir(
                 filters=filters[J_min: j2, :Lj2, L - Lj2: L - 1 + Lj2],  # Select filters from J_min to j2-1
                 precomps=precomps[:(j2-1)-J_min+1]  # precomps are ordered from J_min to J_max
             )  # [J1][Norient1, Nthetaj1, Nphij1]
-            print('val', len(val), val[j2-1].shape)
             Njjprime_for_j2.append(val)  # [Norient2][Jj1][Norient1, Nthetaj1, Nphij1]
-        print('Njjprime_for_j', len(Njjprime_for_j2), len(Njjprime_for_j2[-1]), Njjprime_for_j2[0][0].shape)
         Njjprime.append(Njjprime_for_j2)  # [J2][Norient2][J1j][Norient1, Nthetaj, Nphij] (M_j2 * Psi_j1)
 
     ### Reorder and flatten Njjprime, convert to JAX arrays for C01/C11
-
     Njjprime_flat = []
     # For C01 and C11, we need j1 < j2 so j1=Jmax is not possible, this is why j1 goes from J_min to J_max-1.
     for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1
@@ -228,16 +234,13 @@ def scat_cov_dir(
             for n2 in range(2 * N - 1):
                 Njjprime_flat_for_n2.append(Njjprime[j2 - J_min][n2][j1 - J_min][:, :, :])  # [Norient2][Norient1, Nthetaj1, Nphij1]
             Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)  # [J2][Norient2][Norient1, Ntheta_j1, Nphi_j1]
-
         # [J1][J2, Norient2, Norient1, Nthetaj1, Nphij1] => [J-1][Jj2, Norient, Norient, Ntheta_j1, Nphi_j1]
         Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))
-    print('Njjprime_flat', len(Njjprime_flat), Njjprime_flat[0].shape, Njjprime_flat[-1].shape)
 
     ### Compute C01 and C11
     # Indexing: a/b = j3/j2, j/k = n3/n2, n = n1, theta = t, phi = p
     C01 = []
     C11 = []
-    # Todo!! Normalisation: j'ai ajouté la division par 4pi
     for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1
         ### Compute C01
         # C01 = <W_j1 x (M_j3 * Psi_j1)*> = <W_j1 x (N_j1j3)*> so we must have j1 < j3
@@ -281,7 +284,6 @@ def scat_cov_dir(
         P00 = jnp.concatenate(P00)  # [NP00] = [Norient x J]
         C01 = jnp.concatenate(C01, axis=None)  # [NC01]
         C11 = jnp.concatenate(C11, axis=None)  # [NC11]
-        print('S1, P00, C01, C11', S1.shape, P00.shape, C01.shape, C11.shape)
 
     return mean, var, S1, P00, C01, C11
 
