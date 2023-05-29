@@ -79,6 +79,8 @@ def get_P00only(
         # Average over theta phi with quadrature weights
         val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
                       * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        # val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
+        #                * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
         P00.append(val)  # [J2][Norient2]
 
     ### Normalize P00
@@ -140,7 +142,10 @@ def scat_cov_dir(
     # Compute |Ilm|^2 = Ilm x Ilm*
     Ilm_square = Ilm * jnp.conj(Ilm)
     # Compute the variance : Sum all except the (l=0, m=0) term
-    var = (np.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
+    # Todo: TEST
+    # var = (jnp.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
+    # var = jnp.mean(Ilm_square - Ilm_square[0, L - 1])  # mean() et non sum()/4pi
+    var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)  # Comme avant
 
     ### Perform first (full-scale) wavelet transform W_j2 = I * Psi_j2
     W = s2wav.flm_to_analysis(
@@ -197,10 +202,14 @@ def scat_cov_dir(
 
         ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
         # Average over theta phi (Parseval)
-        val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
-                      * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
+        #               * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         # Other way: average over lm (Parseval) : P00_j2 = < |M_lm|^2 >_j2 (does not give exactly the same)
         # val = jnp.sum(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        # Todo: TEST
+        val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
+                      * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
+        # jnp.mean(jnp.abs(M_lm) ** 2)  # Comme avant
         P00.append(val)  # [J2][Norient2]
 
         ### Compute Njjprime
