@@ -60,7 +60,7 @@ def loss_func_P00_only(flm_float):
 
     P00_new = get_P00only(flm, L, N, J_min, sampling,
                                   None, reality, multiresolution, for_synthesis=True,
-                                  normalisation=tP00_norm, filters=filters,
+                                  normalisation=norm, filters=filters,
                                   quads=weights, precomps=precomps)
     loss = synlib.chi2(tP00, P00_new)
     return loss
@@ -74,7 +74,7 @@ def loss_func(flm_float):
     mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scat_cov_dir(flm, L, N, J_min, sampling,
                                                                                 None, reality, multiresolution,
                                                                                 for_synthesis=True,
-                                                                                normalisation=tP00_norm,
+                                                                                normalisation=norm,
                                                                                 filters=filters,
                                                                                 quads=weights, precomps=precomps)
     # Control for mean + var
@@ -123,11 +123,12 @@ if __name__ == "__main__":
     tP00_norm = get_P00only(flm_target, L, N, J_min, sampling, None,
                                     reality, multiresolution, for_synthesis=False, normalisation=None,
                                     filters=filters, quads=weights, precomps=precomps)  # [J][Norient]
+    norm = tP00_norm
 
     ### Scat coeffs S1, P00, C01, C11
     # tP00 is one by definition of the normalisation
     tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
-                                   reality, multiresolution, for_synthesis=True, normalisation=tP00_norm,
+                                   reality, multiresolution, for_synthesis=True, normalisation=norm,
                                    filters=filters, quads=weights, precomps=precomps)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs  # 1D arrays
 
@@ -169,7 +170,7 @@ if __name__ == "__main__":
     print('Using jaxopt.GradientDescent')
     flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func, method='GradientDescent', niter=args.epochs,
                                           loss_history=None)
-    #print('Using LBFGS from jaxopt.ScipyMinimize')
+    # print('Using LBFGS from jaxopt.ScipyMinimize')
     # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func, method='L-BFGS-B', niter=args.epochs,
     #                                             loss_history=None)
     # print('Using optax.adam')
@@ -184,10 +185,10 @@ if __name__ == "__main__":
 
     print('\n============ Compute again coefficients of start and end  ===============')
     scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
-                           reality, multiresolution, for_synthesis=True, normalisation=tP00_norm,
+                           reality, multiresolution, for_synthesis=True, normalisation=norm,
                            filters=filters, quads=weights, precomps=precomps)
     ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
-                           reality, multiresolution, for_synthesis=True, normalisation=tP00_norm,
+                           reality, multiresolution, for_synthesis=True, normalisation=norm,
                            filters=filters, quads=weights, precomps=precomps)
 
     print('\n ============ Store outputs ===============')
