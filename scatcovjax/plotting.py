@@ -62,12 +62,14 @@ def plot_filters(filters, real=True, m=None, figsize=(8, 6)):
         wlm = np.imag(wlm)
     J = wlm.shape[0]  # Number of wavelets
     fig = plt.subplots(1, 1, figsize=figsize)
-    plt.plot(slm, 'k', label='Scaling fct')
+    # plt.plot(slm, 'k', label='Scaling fct')
     for j in range(J):
         if m is None:  # Axisym filters
-            plt.plot(wlm[j, :], label=f'Wavelet {j}')
+            plt.plot(wlm[j, :], label=f'{j=}')
         else:  # Directionnal filters
-            plt.plot(wlm[j, :, m], label=f'Wavelet {j}')
+            plt.plot(wlm[j, :, m], label=f'{j=}')
+    plt.xlabel(r'$\ell$')
+    plt.ylabel(r'Filters $\Psi^j_{\ell 0}$')
     plt.xscale('log', base=2)
     plt.legend()
     return fig
