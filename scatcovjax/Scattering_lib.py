@@ -79,6 +79,7 @@ def get_P00only(
         # Average over theta phi with quadrature weights
         val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
                       * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2), axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         # val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
         #                * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
         P00.append(val)  # [J2][Norient2]
@@ -143,9 +144,9 @@ def scat_cov_dir(
     Ilm_square = Ilm * jnp.conj(Ilm)
     # Compute the variance : Sum all except the (l=0, m=0) term
     # Todo: TEST
-    # var = (jnp.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
+    var = (jnp.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
     # var = jnp.mean(Ilm_square - Ilm_square[0, L - 1])  # mean() et non sum()/4pi
-    var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)  # Comme avant
+    #var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)  # Comme avant
 
     ### Perform first (full-scale) wavelet transform W_j2 = I * Psi_j2
     W = s2wav.flm_to_analysis(
@@ -167,6 +168,7 @@ def scat_cov_dir(
     P00 = []
     Njjprime = []
     for j2 in range(J_min, J_max + 1):
+        # j2 = Jmin is only for S1 and P00 computation
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
         Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, 2.0, multiresolution)  # Band limit at resolution j2
         print(f'\n {j2=} {Lj2=}')
@@ -198,40 +200,46 @@ def scat_cov_dir(
         ### Compute S1_j2 = < M_lm >_j2
         # Take the value at (l=0, m=0) which corresponds to indices (0, Lj2-1)
         val = M_lm_j2[:, 0, Lj2 - 1] / (2 * jnp.sqrt(jnp.pi))  # [Norient2]
+        # Discard the imaginary part
+        val = jnp.real(val)
         S1.append(val)  # [J2][Norient2]
 
         ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
         # Average over theta phi (Parseval)
-        # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
-        #               * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
+        val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2)
+                       * quads[j2-J_min][None, :, None], axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         # Other way: average over lm (Parseval) : P00_j2 = < |M_lm|^2 >_j2 (does not give exactly the same)
         # val = jnp.sum(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         # Todo: TEST
-        val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
-                      * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
-        # jnp.mean(jnp.abs(M_lm) ** 2)  # Comme avant
+        # val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
+        #               * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
+
+        #val = jnp.mean(jnp.abs(W[j2 - J_min]) ** 2, axis=(-1, -2)) * Lj2/L # Comme avant autre version
+        # val = jnp.mean(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) * Lj2/L # Comme avant
+        # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2), axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         P00.append(val)  # [J2][Norient2]
 
-        ### Compute Njjprime
-        Njjprime_for_j2 = []
-        # TODO: This loop will increase compile time.
-        for n in range(2 * N - 1):  # Loop on orientations
-            # Wavelet transform of Mlm: Nj1j2 = M_j2 * Psi_j1
-            val = s2wav.flm_to_analysis(
-                M_lm_j2[n],
-                Lj2,
-                N,
-                J_min,
-                J_max=j2-1,  # Only do convolutions at larger scales: from J_min to j2-1
-                sampling=sampling,
-                nside=nside,
-                reality=reality,
-                multiresolution=multiresolution,
-                filters=filters[J_min: j2, :Lj2, L - Lj2: L - 1 + Lj2],  # Select filters from J_min to j2-1
-                precomps=precomps[:(j2-1)-J_min+1]  # precomps are ordered from J_min to J_max
-            )  # [J1][Norient1, Nthetaj1, Nphij1]
-            Njjprime_for_j2.append(val)  # [Norient2][Jj1][Norient1, Nthetaj1, Nphij1]
-        Njjprime.append(Njjprime_for_j2)  # [J2][Norient2][J1j][Norient1, Nthetaj, Nphij] (M_j2 * Psi_j1)
+        if j2 != J_min:
+            ### Compute Njjprime
+            Njjprime_for_j2 = []
+            # TODO: This loop will increase compile time.
+            for n in range(2 * N - 1):  # Loop on orientations
+                # Wavelet transform of Mlm: Nj1j2 = M_j2 * Psi_j1
+                val = s2wav.flm_to_analysis(
+                    M_lm_j2[n],
+                    Lj2,
+                    N,
+                    J_min,
+                    J_max=j2-1,  # Only do convolutions at larger scales: from J_min to j2-1
+                    sampling=sampling,
+                    nside=nside,
+                    reality=reality,
+                    multiresolution=multiresolution,
+                    filters=filters[J_min: j2, :Lj2, L - Lj2: L - 1 + Lj2],  # Select filters from J_min to j2-1
+                    precomps=precomps[:(j2-1)-J_min+1]  # precomps are ordered from J_min to J_max
+                )  # [J1][Norient1, Nthetaj1, Nphij1]
+                Njjprime_for_j2.append(val)  # [Norient2][Jj1][Norient1, Nthetaj1, Nphij1]
+            Njjprime.append(Njjprime_for_j2)  # [J2-1][Norient2][J1j][Norient1, Nthetaj, Nphij] (M_j2 * Psi_j1)
 
     ### Reorder and flatten Njjprime, convert to JAX arrays for C01/C11
     Njjprime_flat = []
@@ -241,7 +249,8 @@ def scat_cov_dir(
         for j2 in range(j1 + 1, J_max + 1):  # j1+1 <= j2 <= J_max
             Njjprime_flat_for_n2 = []
             for n2 in range(2 * N - 1):
-                Njjprime_flat_for_n2.append(Njjprime[j2 - J_min][n2][j1 - J_min][:, :, :])  # [Norient2][Norient1, Nthetaj1, Nphij1]
+                # In Njjprime, j2 starts at Jmin + 1 while j1 starts at Jmin
+                Njjprime_flat_for_n2.append(Njjprime[j2 - J_min - 1][n2][j1 - J_min][:, :, :])  # [Norient2][Norient1, Nthetaj1, Nphij1]
             Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)  # [J2][Norient2][Norient1, Ntheta_j1, Nphi_j1]
         # [J1][J2, Norient2, Norient1, Nthetaj1, Nphij1] => [J-1][Jj2, Norient, Norient, Ntheta_j1, Nphi_j1]
         Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))
@@ -254,12 +263,17 @@ def scat_cov_dir(
         ### Compute C01
         # C01 = <W_j1 x (M_j3 * Psi_j1)*> = <W_j1 x (N_j1j3)*> so we must have j1 < j3
         # Do the product W_j1n1tp x N_j1j3n3n1tp*
+        print(j1)
         val = jnp.einsum(
             "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min], optimize=True
         )  # [J3_j1, Norient3, Norient1, Nthetaj1, Nphij1]
+        if j1 == 3:
+            print('\n val', val)
         # Average over Theta and Phi: <val>_j3n3n1 = Sum_tp (val_j3n3n1tp x quad_t) / 4pi
         val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min], optimize=True)  # [J3_j1, Norient3, Norient1]
-        val /= (4 * np.pi)
+        # val /= (4 * np.pi)
+        # Discard the imaginary part
+        val = jnp.real(val)
         C01.append(val)  # [J1-1][J3_j1, Norient3, Norient1]
 
         ### Compute C11
@@ -269,7 +283,9 @@ def scat_cov_dir(
         val = jnp.einsum("ajntp,bkntp->abjkntp", val, jnp.conj(val), optimize=True)  # [J3_j1, J2_j1, Norient3, Norient2, Norient1, Nthetaj1, Nphij1]
         # Average over Theta and Phi: <val>_j3j2n3n2n1 = Sum_tp (val_j3j2n3n2n1tp x quad_t) / 4pi
         val = jnp.einsum("abjkntp,t->abjkn", val, quads[j1 - J_min], optimize=True)  # [J3_j1, J2_j1, Norient3, Norient2, Norient1]
-        val /= (4 * np.pi)
+        # val /= (4 * np.pi)
+        # Discard the imaginary part
+        val = jnp.real(val)
         C11.append(val)  # [J1-1][J3_j1, J2_j1, Norient3, Norient2, Norient1]
 
     ### Normalize the coefficients
@@ -280,11 +296,15 @@ def scat_cov_dir(
             P00[j2 - J_min] /= normalisation[j2 - J_min]
         ## C01 and C11
         for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1
-            C01[j1 - J_min] = jnp.einsum("ajn,j->ajn", C01[j1-J_min], 1 / jnp.sqrt(normalisation[j1-J_min]), optimize=True)
-            C01[j1 - J_min] = jnp.einsum("ajn,n->ajn", C01[j1 - J_min], 1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
+            C01[j1 - J_min] = jnp.einsum("ajn,j->ajn", C01[j1 - J_min],
+                                             1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
+            C01[j1 - J_min] = jnp.einsum("ajn,n->ajn", C01[j1 - J_min],
+                                            1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
 
-            C11[j1 - J_min] = jnp.einsum("abjkn,j->abjkn", C11[j1 - J_min], 1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
-            C11[j1 - J_min] = jnp.einsum("abjkn,k->abjkn", C11[j1 - J_min], 1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
+            C11[j1 - J_min] = jnp.einsum("abjkn,j->abjkn", C11[j1 - J_min],
+                                             1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
+            C11[j1 - J_min] = jnp.einsum("abjkn,k->abjkn", C11[j1 - J_min],
+                                             1 / jnp.sqrt(normalisation[j1 - J_min]), optimize=True)
 
 
     ### Make 1D jnp arrays instead of list (for synthesis)
@@ -293,6 +313,10 @@ def scat_cov_dir(
         P00 = jnp.concatenate(P00)  # [NP00] = [Norient x J]
         C01 = jnp.concatenate(C01, axis=None)  # [NC01]
         C11 = jnp.concatenate(C11, axis=None)  # [NC11]
+
+        # !!! TEST
+        # S1 = jnp.log(S1)
+        # P00 = jnp.log(P00)
 
     return mean, var, S1, P00, C01, C11
 
