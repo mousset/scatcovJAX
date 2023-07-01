@@ -220,11 +220,16 @@ def scat_cov_dir(
         P00.append(val)  # [J2][Norient2]
 
         if j2 != J_min:
+            ### Filters
+            # We must pass all scales (selection between J_min and J_max=j2-1 done in the function
+            filters_j2 = filters[:, :Lj2, L - Lj2: L - 1 + Lj2]
             ### Compute Njjprime
             Njjprime_for_j2 = []
             # TODO: This loop will increase compile time.
             for n in range(2 * N - 1):  # Loop on orientations
                 # Wavelet transform of Mlm: Nj1j2 = M_j2 * Psi_j1
+                # val shape is [J1j][Norient1, Nthetaj1, Nphij1]
+                # Not sure of the len of val (some terms are 0)
                 val = s2wav.flm_to_analysis(
                     M_lm_j2[n],
                     Lj2,
@@ -235,7 +240,7 @@ def scat_cov_dir(
                     nside=nside,
                     reality=reality,
                     multiresolution=multiresolution,
-                    filters=filters[J_min: j2, :Lj2, L - Lj2: L - 1 + Lj2],  # Select filters from J_min to j2-1
+                    filters=filters_j2,
                     precomps=precomps[:(j2-1)-J_min+1]  # precomps are ordered from J_min to J_max
                 )  # [J1][Norient1, Nthetaj1, Nphij1]
                 Njjprime_for_j2.append(val)  # [Norient2][Jj1][Norient1, Nthetaj1, Nphij1]
@@ -263,12 +268,9 @@ def scat_cov_dir(
         ### Compute C01
         # C01 = <W_j1 x (M_j3 * Psi_j1)*> = <W_j1 x (N_j1j3)*> so we must have j1 < j3
         # Do the product W_j1n1tp x N_j1j3n3n1tp*
-        print(j1)
         val = jnp.einsum(
             "ajntp,ntp->ajntp", jnp.conj(Njjprime_flat[j1 - J_min]), W[j1 - J_min], optimize=True
         )  # [J3_j1, Norient3, Norient1, Nthetaj1, Nphij1]
-        if j1 == 3:
-            print('\n val', val)
         # Average over Theta and Phi: <val>_j3n3n1 = Sum_tp (val_j3n3n1tp x quad_t) / 4pi
         val = jnp.einsum("ajntp,t->ajn", val, quads[j1 - J_min], optimize=True)  # [J3_j1, Norient3, Norient1]
         # val /= (4 * np.pi)
