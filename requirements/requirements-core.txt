@@ -3,11 +3,9 @@ s2wav @ git+https://github.com/astro-informatics/s2wav.git@main#egg=s2wav
 pysm3>=3.3.2
 
 # Temporary requirements
-Cartopy
 matplotlib 
 astropy 
 scipy 
 Pillow
-optax
+jupyter
 jaxopt
-
