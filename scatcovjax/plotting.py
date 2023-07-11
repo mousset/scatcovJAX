@@ -3,6 +3,8 @@ from matplotlib import pyplot as plt
 import cartopy.crs as ccrs
 import s2fft
 
+import scatcovjax.Sphere_lib as sphlib
+
 
 def notebook_plot_format():
     plt.rc('font', size=16)  # controls default text sizes
@@ -76,13 +78,16 @@ def plot_filters(filters, real=True, m=None, figsize=(8, 6)):
 
 
 def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=None,
-             cmap='viridis', figsize=(12, 6)):
+             cmap='viridis', figsize=(12, 6), reality=False):
     """
     Plot the flm in the (l, m) plane.
     flm: array
         2D array [L, 2L-1]
     """
     L = flm.shape[0]
+
+    if reality:
+        flm = sphlib.make_flm_full(flm, L)  # [L, 2L-1]
 
     def for_all_plots(ax):
         ax.set_xlabel(r'$\ell$')
