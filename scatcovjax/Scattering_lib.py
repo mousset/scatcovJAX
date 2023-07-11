@@ -130,7 +130,7 @@ def scat_cov_dir(
     if precomps == None:
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
             L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
-        )  # [J][J_max+1][?]
+        )  # [J][J+1][?] Not sure
 
     # If the map is real (only m>0 stored), we create the (m<0) part.
     if reality:
@@ -197,7 +197,7 @@ def scat_cov_dir(
         # Loop on orientations
         M_lm_j2 = lax.fori_loop(0, 2 * N - 1, modulus_step_for_j, M_lm_j2)  # [Norient2, Lj2, Mj2]
 
-        ### Compute S1_j2 = < M_lm >_j2
+        ### Compute S1_j2 = < M >_j2
         # Take the value at (l=0, m=0) which corresponds to indices (0, Lj2-1)
         val = M_lm_j2[:, 0, Lj2 - 1] / (2 * jnp.sqrt(jnp.pi))  # [Norient2]
         # Discard the imaginary part
@@ -219,9 +219,11 @@ def scat_cov_dir(
         # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2), axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         P00.append(val)  # [J2][Norient2]
 
+        ### Compute Njjprime
+        # The iteration at j2=Jmin was only needed for S1 and P00 so we do not do the Njjprime computation when j2=Jmin.
         if j2 != J_min:
-            ### Filters
-            # We must pass all scales (selection between J_min and J_max=j2-1 done in the function
+            # Filters: We must keep all scales
+            # the selection from J_min to J_max=j2-1 is done in the function flm_to_analysis()
             filters_j2 = filters[:, :Lj2, L - Lj2: L - 1 + Lj2]
             ### Compute Njjprime
             Njjprime_for_j2 = []
@@ -256,9 +258,8 @@ def scat_cov_dir(
             for n2 in range(2 * N - 1):
                 # In Njjprime, j2 starts at Jmin + 1 while j1 starts at Jmin
                 Njjprime_flat_for_n2.append(Njjprime[j2 - J_min - 1][n2][j1 - J_min][:, :, :])  # [Norient2][Norient1, Nthetaj1, Nphij1]
-            Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)  # [J2][Norient2][Norient1, Ntheta_j1, Nphi_j1]
-        # [J1][J2, Norient2, Norient1, Nthetaj1, Nphij1] => [J-1][Jj2, Norient, Norient, Ntheta_j1, Nphi_j1]
-        Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))
+            Njjprime_flat_for_j2.append(Njjprime_flat_for_n2)  # [J2][Norient2][Norient1, Nthetaj1, Nphij1]
+        Njjprime_flat.append(jnp.array(Njjprime_flat_for_j2))  # [J1][J2, Norient2, Norient1, Nthetaj1, Nphij1]
 
     ### Compute C01 and C11
     # Indexing: a/b = j3/j2, j/k = n3/n2, n = n1, theta = t, phi = p
