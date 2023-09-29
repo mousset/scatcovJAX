@@ -33,6 +33,7 @@ parser.add_argument('-l', '--L', help='L max value', default=32, type=int)
 parser.add_argument('-n', '--N', help='N value', default=3, type=int)
 parser.add_argument('-j', '--Jmin', help='J_min value', default=1, type=int)
 parser.add_argument('-e', '--epochs', help='Number of epochs', default=10, type=int)
+parser.add_argument('-r', '--nreals', help='Number of realisations', default=1, type=int)
 parser.add_argument('-s', '--save_dir', help='Path where outputs are saved.', default='./', type=str)
 
 args = parser.parse_args()
@@ -44,6 +45,7 @@ if not os.path.exists(args.save_dir):
 L = args.L
 N = args.N
 J_min = args.Jmin
+nreals = args.nreals
 J_max = s2wav.utils.shapes.j_max(L)
 J = J_max - J_min + 1
 
@@ -93,7 +95,7 @@ def loss_func(flm_float):
 #######################################################################
 if __name__ == "__main__":
     print('\n============ Parameters ===============')
-    print(f'{L=}, {N=}, {J=}, {J_min=}, {J_max=}, {reality=}')
+    print(f'{L=}, {N=}, {J=}, {J_min=}, {J_max=}, {reality=}, {nreals=}')
 
     print('\n============ Build the filters ===============')
     filters = filters_directional_vectorised(L, N, J_min)[0]
@@ -107,8 +109,13 @@ if __name__ == "__main__":
 
     print('\n============ Make the target ===============')
     ### Sky
-    f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
-    print('Target = LSS map')
+    repo = '/travail/lmousset/CosmoGrid/CosmoFiducial_barionified_nside512/'
+    f_target, flm_target = sphlib.make_CosmoGrid_sky(L, dirmap=repo, run=0, idx_z=10, sampling=sampling,
+                                                     nest=False, normalize=True, reality=reality)
+    print('Target = LSS map : I = np.log(I + 0.001) - 2')
+
+    # f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
+    # print('Target = LSS map')
 
     # f_target, flm_target = sphlib.make_pysm_sky(L, 'cmb', sampling=sampling, nest=False, normalize=True, reality=reality)
     # print('Target = CMB map')
@@ -126,81 +133,84 @@ if __name__ == "__main__":
     norm = tP00_norm
 
     ### Scat coeffs S1, P00, C01, C11
-    # tP00 is one by definition of the normalisation
+    # tP00 is one by definition of the normalisation (if norm is not None)
     tcoeffs = scat_cov_dir(flm_target, L, N, J_min, sampling, None,
                                    reality, multiresolution, for_synthesis=True, normalisation=norm,
                                    filters=filters, quads=weights, precomps=precomps)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs  # 1D arrays
 
-    print('\n============ Build initial conditions ===============')
-    # Gaussian white noise in pixel space
-    print('White noise MW pixel space with the STD of the target')
-    # If the target map is normalized, we should have tvar = 1.
-    print(f'{tvar=}')
-    np.random.seed(42)  # Fix the seed
-    if reality:  # Real map
-        # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64)
-        f = jnp.std(f_target) * np.random.randn(L, 2 * L - 1).astype(np.float64)
-    else:
-        # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
-        #     1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
-        f = jnp.std(f_target) * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
-            1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
-    # SHT to make the initial flm
-    flm = s2fft.forward_jax(f, L, reality=reality)
-
-    # Cut the flm
-    flm = flm[:, L - 1:] if reality else flm
-
-    # Save the start point as we will iterate on flm
-    flm_start = jnp.copy(flm)
-
-    # Make a float array for the optimizer
-    flm_float = jnp.array([jnp.real(flm), jnp.imag(flm)])  # [2, L, L]
-
-    # print('\n============ Start the synthesis on P00 only ===============')
-    # print('Using jaxopt.GradientDescent')
-    # flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func_P00_only, method='GradientDescent', niter=args.epochs,
-    #                                       loss_history=None)
-    # print('Using LBFGS from jaxopt.ScipyMinimize')
-    # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func_P00_only, method='L-BFGS-B', niter=args.epochs,
-    #                                             loss_history=None)
-
-    print('\n============ Start the synthesis on all coeffs ===============')
-    print('Using jaxopt.GradientDescent')
-    flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func, method='GradientDescent', niter=args.epochs,
-                                          loss_history=None)
-    # print('Using LBFGS from jaxopt.ScipyMinimize')
-    # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func, method='L-BFGS-B', niter=args.epochs,
-    #                                             loss_history=None)
-    # print('Using optax.adam')
-    # lr = 1e-2
-    # optimizer = optax.adam(lr)
-    # flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs,
-    #                                      loss_history=None)
-    # flm_end = jnp.copy(flm)
-
-    ### Rebuild the complex flm array
-    flm_end = flm[0, :, :] + 1j * flm[1, :, :]
-
-    print('\n============ Compute again coefficients of start and end  ===============')
-    scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
-                           reality, multiresolution, for_synthesis=True, normalisation=norm,
-                           filters=filters, quads=weights, precomps=precomps)
-    ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
-                           reality, multiresolution, for_synthesis=True, normalisation=norm,
-                           filters=filters, quads=weights, precomps=precomps)
-
-    print('\n ============ Store outputs ===============')
-    # Save the flm and the loss
+    print(f'\n ============ Store outputs for the target ===============')
     np.save(args.save_dir + 'flm_target.npy', flm_target)
-    np.save(args.save_dir + 'flm_start.npy', flm_start)
-    np.save(args.save_dir + 'flm_end.npy', flm_end)
-    np.save(args.save_dir + 'loss.npy', loss_history)
-
-    # Save the coefficients
     np.save(args.save_dir + 'coeffs_target.npy', tcoeffs)
-    np.save(args.save_dir + 'coeffs_start.npy', scoeffs)
-    np.save(args.save_dir + 'coeffs_end.npy', ecoeffs)
+
+    for r in range(nreals):
+        print(f'\n============ START REAL {r+1}/{nreals} ===============')
+        print('\n============ Build initial conditions ===============')
+        # Gaussian white noise in pixel space
+        print('White noise MW pixel space with the STD of the target')
+        # If the target map is normalized, we should have tvar = 1.
+        print(f'{tvar=}')
+        # np.random.seed(42)  # Fix the seed
+        if reality:  # Real map
+            # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64)
+            f = jnp.std(f_target) * np.random.randn(L, 2 * L - 1).astype(np.float64)
+        else:
+            # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
+            #     1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
+            f = jnp.std(f_target) * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
+                1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
+        # SHT to make the initial flm
+        flm = s2fft.forward_jax(f, L, reality=reality)
+
+        # Cut the flm
+        flm = flm[:, L - 1:] if reality else flm
+
+        # Save the start point as we will iterate on flm
+        flm_start = jnp.copy(flm)
+
+        # Make a float array for the optimizer
+        flm_float = jnp.array([jnp.real(flm), jnp.imag(flm)])  # [2, L, L]
+
+        # print('\n============ Start the synthesis on P00 only ===============')
+        # print('Using jaxopt.GradientDescent')
+        # flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func_P00_only, method='GradientDescent', niter=args.epochs,
+        #                                       loss_history=None)
+        # print('Using LBFGS from jaxopt.ScipyMinimize')
+        # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func_P00_only, method='L-BFGS-B', niter=args.epochs,
+        #                                             loss_history=None)
+
+        print('\n============ Start the synthesis on all coeffs ===============')
+        print('Using jaxopt.GradientDescent')
+        flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func, method='GradientDescent', niter=args.epochs,
+                                              loss_history=None)
+        # print('Using LBFGS from jaxopt.ScipyMinimize')
+        # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func, method='L-BFGS-B', niter=args.epochs,
+        #                                             loss_history=None)
+        # print('Using optax.adam')
+        # lr = 1e-2
+        # optimizer = optax.adam(lr)
+        # flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs,
+        #                                      loss_history=None)
+        # flm_end = jnp.copy(flm)
+
+        ### Rebuild the complex flm array
+        flm_end = flm[0, :, :] + 1j * flm[1, :, :]
+
+        print('\n============ Compute again coefficients of start and end  ===============')
+        scoeffs = scat_cov_dir(flm_start, L, N, J_min, sampling, None,
+                               reality, multiresolution, for_synthesis=True, normalisation=norm,
+                               filters=filters, quads=weights, precomps=precomps)
+        ecoeffs = scat_cov_dir(flm_end, L, N, J_min, sampling, None,
+                               reality, multiresolution, for_synthesis=True, normalisation=norm,
+                               filters=filters, quads=weights, precomps=precomps)
+
+        print(f'\n ============ Store outputs for real {r} ===============')
+        # Save the flm and the loss
+        np.save(args.save_dir + f'flm_start_{r}.npy', flm_start)
+        np.save(args.save_dir + f'flm_end_{r}.npy', flm_end)
+        np.save(args.save_dir + f'loss_{r}.npy', loss_history)
+        # Save the coefficients
+        np.save(args.save_dir + f'coeffs_start_{r}.npy', scoeffs)
+        np.save(args.save_dir + f'coeffs_end_{r}.npy', ecoeffs)
 
     print('\n ============ END ===============')
