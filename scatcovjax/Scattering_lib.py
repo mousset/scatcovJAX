@@ -19,6 +19,7 @@ def get_P00only(
     L: int,
     N: int,
     J_min: int,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     reality: bool = False,
@@ -39,14 +40,14 @@ def get_P00only(
     if quads is None:
         quads = []
         for j in range(J_min, J_max + 1):
-            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
             quads.append(s2fft.quadrature_jax.quad_weights(Lj, sampling, nside))  # [J][Lj]
 
     # Part of the Wigner transform that can be computed just once.
     # It can be computed outside and pass to the function as an argument (avoid many computations.)
     if precomps == None:
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
-            L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
+            L, N, J_min, lam, sampling, nside, False, reality, multiresolution
         )  # [J][J_max+1][?]
 
     # If the map is real (only m>0 stored) so we create the (m<0) part.
@@ -61,6 +62,7 @@ def get_P00only(
         L,
         N,
         J_min,
+        lam=lam,
         sampling=sampling,
         nside=nside,
         reality=reality,
@@ -72,8 +74,8 @@ def get_P00only(
     P00 = []
     for j2 in range(J_min, J_max + 1):
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
-        Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, 2.0, multiresolution)  # Band limit at resolution j2
-        print(f'\n {j2=} {Lj2=}')
+        #Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, lam, multiresolution)  # Band limit at resolution j2
+        #print(f'\n {j2=} {Lj2=}')
 
         ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
         # Average over theta phi with quadrature weights
@@ -102,6 +104,7 @@ def scat_cov_dir(
     L: int,
     N: int,
     J_min: int,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     reality: bool = False,
@@ -122,14 +125,14 @@ def scat_cov_dir(
     if quads is None:
         quads = []
         for j in range(J_min, J_max + 1):
-            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
             quads.append(s2fft.quadrature_jax.quad_weights(Lj, sampling, nside))  # [J][Lj]
 
     # Part of the Wigner transform that can be computed just once.
     # It can be computed outside and pass to the function as an argument (avoid many computations.)
     if precomps == None:
         precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(
-            L, N, J_min, 2.0, sampling, nside, False, reality, multiresolution
+            L, N, J_min, lam, sampling, nside, False, reality, multiresolution
         )  # [J][J+1][?] Not sure
 
     # If the map is real (only m>0 stored), we create the (m<0) part.
@@ -154,6 +157,7 @@ def scat_cov_dir(
         L,
         N,
         J_min,
+        lam=lam,
         sampling=sampling,
         nside=nside,
         reality=reality,
@@ -170,8 +174,8 @@ def scat_cov_dir(
     for j2 in range(J_min, J_max + 1):
         # j2 = Jmin is only for S1 and P00 computation
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
-        Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, 2.0, multiresolution)  # Band limit at resolution j2
-        print(f'\n {j2=} {Lj2=}')
+        Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, lam, multiresolution)  # Band limit at resolution j2
+        #print(f'\n {j2=} {Lj2=}')
 
         def modulus_step_for_j(n, args):
             """
@@ -238,6 +242,7 @@ def scat_cov_dir(
                     N,
                     J_min,
                     J_max=j2-1,  # Only do convolutions at larger scales: from J_min to j2-1
+                    lam=lam,
                     sampling=sampling,
                     nside=nside,
                     reality=reality,
@@ -480,6 +485,7 @@ def scat_cov_axi(
 def quadrature(
     L: int,
     J_min: int = 0,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     multiresolution: bool = True,
@@ -487,7 +493,7 @@ def quadrature(
     J = s2wav.utils.shapes.j_max(L)
     quads = []
     for j in range(J_min, J + 1):
-        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
         quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
     return quads
 
@@ -503,6 +509,7 @@ if __name__ == "__main__":
     L = 16
     N = 3
     J_min = 0
+    lam = 2.0
     sampling = "mw"
     reality = True
     multiresolution = True
@@ -510,7 +517,7 @@ if __name__ == "__main__":
     # Generate precomputed values
     filters = s2wav.filter_factory.filters.filters_directional_vectorised(L, N, J_min)
     weights = quadrature(L)
-    precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(L, N, J_min, 2.0, sampling, None, False, reality, multiresolution)
+    precomps = s2wav.transforms.jax_wavelets.generate_wigner_precomputes(L, N, J_min, lam, sampling, None, False, reality, multiresolution)
 
     Ilm = np.random.randn(L, 2 * L - 1) + 1j * np.random.randn(L, 2 * L - 1)
 
@@ -519,6 +526,7 @@ if __name__ == "__main__":
         L,
         N,
         J_min,
+        lam,
         sampling,
         None,
         reality,
