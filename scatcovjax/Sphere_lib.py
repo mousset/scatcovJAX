@@ -10,6 +10,8 @@ import s2fft
 # To open earth map
 from PIL import Image
 from matplotlib.image import pil_to_array
+from astropy.io import fits
+#from astropy.utils.data import get_pkg_data_filename
 
 
 def normalize_map(I):
@@ -85,10 +87,65 @@ def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, no
     # SHT inverse transform at L
     Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
 
-    # Make a MW map
     if sampling == 'mw':
+        ### Make a MW map
         I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
         print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L - 1:]  # [L, L]
+
+    return I, Ilm
+
+
+def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, reality=True):
+    """
+
+    Parameters
+    ----------
+    L
+    dirmap
+    sampling
+    nest
+    normalize
+    reality
+
+    Returns
+    -------
+
+    """
+    nside = int(L / 2)
+
+    ### Get the Healpix map
+    image_file = fits.open(mapfile)
+    I = hp.read_map(image_file, 0, h=False)
+
+    # From nside=4096 to nside=L/2
+    I = hp.ud_grade(I, nside_out=nside)
+    # Take the log
+    #I = np.log(I + 0.0001) - 2  # For Lensing
+    I = np.log(I) + 2  # For tSZ
+
+    if normalize:  # Normalize: mean=0 and std=1
+        I = normalize_map(I)
+
+    # Convert from RING to NEST ordering in case of healpix sampling
+    if nest:
+        I = hp.reorder(I, r2n=True)
+
+    # SHT inverse transform at L
+    Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
+
+    if sampling == 'mw':
+        ### Make a MW map
+        I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
+        print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
     # Get only positive m
     if reality:
         Ilm = Ilm[:, L - 1:]  # [L, L]
@@ -136,10 +193,13 @@ def make_pysm_sky(L, sky_type, sampling='mw', nest=False, normalize=False, reali
     # SHT inverse transform at L
     Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
 
-    # Make a MW map
     if sampling == 'mw':
+        ### Make a MW map
         I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
         print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
     # Get only positive m
     if reality:
         Ilm = Ilm[:, L - 1:]  # [L, L]
@@ -227,8 +287,29 @@ def make_flm_full(flm_half, L):
     return flm_full
 
 
-def compute_ps(flm):
-    return jnp.sum(jnp.abs(flm)**2, axis=-1)
+def compute_ps(flm, reality=False):
+    ps = jnp.nansum(jnp.abs(flm) ** 2, axis=-1)
+    if reality:
+        ps = 2. * ps - ps[0]
+    return ps
+
+
+def gaussian(x, mu, sigma):
+    """ Return the normalized Gaussian with standard deviation sigma and mean mu. """
+    return jnp.exp(-0.5 * ((x-mu) / sigma)**2)
+
+
+def make_linear_filters(Nfilters, L):
+    """
+    We linearly span the l axis from 0 to L-1 with Gaussian with standard deviation equal to L//Nfilters
+    and normalized with maximum equal to 1.
+    """
+    filter_lin = np.zeros((Nfilters, L))
+    ll = np.arange(0, L)
+    for j in range(Nfilters):
+        filter_lin[j, :] = gaussian(ll, L//(Nfilters) * (j+1), L//Nfilters)
+    return filter_lin
+
 
 # ############ AVERAGE, VARIANCE AND PS ON SPHERE
 # class Spherical_Compute():
