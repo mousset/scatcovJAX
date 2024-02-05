@@ -14,12 +14,21 @@ from s2fft.precompute_transforms.spherical import forward_transform_jax
 from s2fft.precompute_transforms.construct import spin_spherical_kernel_jax
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8))
+def get_P00prime(flm, filter_lin, normalisation=None):
+    P00prime_ell = jnp.sum(jnp.abs(flm[None, :, :] * filter_lin[:, :, None])**2, axis=2)  # [Nfilters, L]
+    P00prime = jnp.mean(P00prime_ell, axis=1)  # [Nfilters]
+    if normalisation is not None:
+        P00prime /= normalisation
+    return P00prime_ell, P00prime
+
+
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9))
 def get_P00only(
     Ilm_in: jnp.ndarray,
     L: int,
     N: int,
     J_min: int,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     reality: bool = False,
@@ -30,7 +39,7 @@ def get_P00only(
     quads: List[jnp.ndarray] = None,
     precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
-    J_max = s2wav.utils.shapes.j_max(L)  # Maximum scale
+    J_max = s2wav.utils.shapes.j_max(L, lam=lam)  # Maximum scale
     # J = J_max - J_min + 1  # Number of scales used
     # !!! Whatever is J_min, the shape of filter is [J_max+1, L, 2L-1] (starting from 0, not J_min)
 
@@ -39,7 +48,7 @@ def get_P00only(
     if quads is None:
         quads = []
         for j in range(J_min, J_max + 1):
-            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
             quads.append(
                 s2fft.quadrature_jax.quad_weights(Lj, sampling, nside)
             )  # [J][Lj]
@@ -61,6 +70,7 @@ def get_P00only(
         L=L,
         N=N,
         J_min=J_min,
+        lam=lam,
         sampling=sampling,
         nside=nside,
         reality=reality,
@@ -72,9 +82,7 @@ def get_P00only(
     P00 = []
     for j2 in range(J_min, J_max + 1):
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
-        Lj2 = s2wav.utils.shapes.wav_j_bandlimit(
-            L, j2, 2.0, multiresolution
-        )  # Band limit at resolution j2
+        # Lj2 = s2wav.utils.shapes.wav_j_bandlimit(L, j2, lam, multiresolution)  # Band limit at resolution j2
 
         ### Compute P00_j2 = < |W_j2(theta, phi)|^2 >_tp
         # Average over theta phi with quadrature weights
@@ -101,12 +109,13 @@ def get_P00only(
     return P00
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8))
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9))
 def scat_cov_dir(
     Ilm_in: jnp.ndarray,
     L: int,
     N: int,
     J_min: int,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     reality: bool = False,
@@ -117,7 +126,7 @@ def scat_cov_dir(
     quads: List[jnp.ndarray] = None,
     precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
-    J_max = s2wav.utils.shapes.j_max(L)  # Maximum scale
+    J_max = s2wav.utils.shapes.j_max(L, lam=lam)  # Maximum scale
     # J = J_max - J_min + 1  # Number of scales used
     # !!! Whatever is J_min, the shape of filter is [J_max+1, L, 2L-1] (starting from 0, not J_min)
 
@@ -126,7 +135,7 @@ def scat_cov_dir(
     if quads is None:
         quads = []
         for j in range(J_min, J_max + 1):
-            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+            Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
             quads.append(
                 s2fft.quadrature_jax.quad_weights(Lj, sampling, nside)
             )  # [J][Lj]
@@ -158,6 +167,7 @@ def scat_cov_dir(
         L=L,
         N=N,
         J_min=J_min,
+        lam=lam,
         sampling=sampling,
         nside=nside,
         reality=reality,
@@ -174,7 +184,7 @@ def scat_cov_dir(
         # j2 = Jmin is only for S1 and P00 computation
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
         Lj2 = s2wav.utils.shapes.wav_j_bandlimit(
-            L, j2, 2.0, multiresolution
+            L, j2, lam, multiresolution
         )  # Band limit at resolution j2
 
         def modulus_step_for_j(n, args):
@@ -250,8 +260,8 @@ def scat_cov_dir(
                     L=Lj2,
                     N=N,
                     J_min=J_min,
-                    J_max=j2
-                    - 1,  # Only do convolutions at larger scales: from J_min to j2-1
+                    J_max=j2 - 1,  # Only do convolutions at larger scales: from J_min to j2-1
+                    lam=lam,
                     sampling=sampling,
                     nside=nside,
                     reality=reality,
@@ -379,14 +389,16 @@ def scat_cov_dir(
 def quadrature(
     L: int,
     J_min: int = 0,
+    lam: float = 2.0,
     sampling: str = "mw",
     nside: int = None,
     multiresolution: bool = True,
 ):
-    J = s2wav.utils.shapes.j_max(L)
+    J = s2wav.utils.shapes.j_max(L, lam=lam)
     quads = []
     for j in range(J_min, J + 1):
-        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, 2.0, multiresolution)
+        Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
+        #quads.append(s2fft.utils.quadrature_jax.quad_weights_mw_theta_only(Lj))
         quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
     return quads
 
@@ -395,16 +407,18 @@ def generate_full_precompute(
     L: int,
     N: int,
     J_min: int,
-    sampling: str,
-    reality: bool,
-    multiresolution: bool,
-    nside: int,
+    lam: float = 2.0,
+    sampling: str = "mw",
+    nside: int = None,
+    multiresolution: bool = True,
+    reality: bool = False
 ):
-    J_max = s2wav.utils.shapes.j_max(L)  # Maximum scale
+    J_max = s2wav.utils.shapes.j_max(L, lam=lam)  # Maximum scale
     precomps = wavelets.generate_precomputes(
         L=L,
         N=N,
         J_min=J_min,
+        lam=lam,
         forward=False,
         reality=reality,
         multiresolution=multiresolution,
@@ -414,7 +428,7 @@ def generate_full_precompute(
         # j2 = Jmin is only for S1 and P00 computation
         # Subsampling: the resolution in the plane (l, m) is adapted at each scale j2
         Lj2 = s2wav.utils.shapes.wav_j_bandlimit(
-            L, j2, 2.0, multiresolution
+            L, j2, lam, multiresolution
         )  # Band limit at resolution j2
         precomps[0].append(
             spin_spherical_kernel_jax(
