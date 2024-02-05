@@ -10,7 +10,6 @@ import jaxopt
 Few functions that can be used to run a synthesis.
 """
 
-
 def chi2(model, data):
     return jnp.sum(jnp.abs(data-model)**2)
 
