@@ -18,18 +18,19 @@ def notebook_plot_format():
 
 
 def plot_map_MW_Mollweide(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=None,
-                          central_longitude=0, title='Map - Real part',
+                          central_longitude=0, pole_latitude=90, pole_longitude=180, title='Map - Real part',
                           fig=None, ax=None):
-
+    rotated_pole = ccrs.RotatedPole(pole_latitude=pole_latitude, pole_longitude=pole_longitude)
     if fig is None:
         fig = plt.figure(figsize=figsize)
         ax = plt.axes(projection=ccrs.Mollweide(central_longitude=central_longitude))
-    im = ax.imshow(np.real(map_MW), transform=ccrs.PlateCarree(),
+    im = ax.imshow(np.real(map_MW), transform=rotated_pole,
                    vmin=vmin, vmax=vmax)
     ax.set_title(title, fontsize=fontsize)
+    # ccrs.PlateCarree()
     #fig.colorbar(im, ax=ax, orientation='horizontal')
     fig.tight_layout()
-    return
+    return fig
 
 
 def plot_map_MW_Orthographic(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=None,
@@ -123,21 +124,21 @@ def plot_scatcov_coeffs(S1, P00, C01, C11, name=None, hold=True, color='blue', l
         plt.figure(figsize=(8, 8))
 
     plt.subplot(2, 2, 1)
-    plt.plot(np.real(S1), color=color, label=f'{name} ' + r'$S_1$', ls=ls, marker=marker)
+    plt.plot(np.real(S1), color=color, label=f'{name}', ls=ls, marker=marker)
+    plt.title(r'$S_1$')
     plt.legend()
 
     plt.subplot(2, 2, 2)
-    plt.plot(np.real(P00), color=color, label=f'{name} ' + r'$P_{00}$', ls=ls, marker=marker)
-    plt.legend()
+    plt.plot(np.real(P00), color=color, label=f'{name}', ls=ls, marker=marker)
+    plt.title(r'$P_{00}$')
 
     plt.subplot(2, 2, 3)
     plt.plot(np.real(C01), color=color, label=f'{name} ' + r'$C_{01}$', ls=ls, marker=marker)
-    plt.legend()
+    plt.title(r'$C_{01}$')
 
     plt.subplot(2, 2, 4)
     plt.plot(np.real(C11), color=color, label=f'{name} ' + r'$C_{11}$', ls=ls, marker=marker)
-    plt.legend()
-
+    plt.title(r'$C_{11}$')
     return
 
 
