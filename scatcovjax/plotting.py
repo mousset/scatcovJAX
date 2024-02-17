@@ -19,7 +19,7 @@ def notebook_plot_format():
 
 def plot_map_MW_Mollweide(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=None,
                           central_longitude=0, pole_latitude=90, pole_longitude=180, title='Map - Real part',
-                          fig=None, ax=None):
+                          fig=None, ax=None, colorbar=False):
     rotated_pole = ccrs.RotatedPole(pole_latitude=pole_latitude, pole_longitude=pole_longitude)
     if fig is None:
         fig = plt.figure(figsize=figsize)
@@ -28,7 +28,8 @@ def plot_map_MW_Mollweide(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=
                    vmin=vmin, vmax=vmax)
     ax.set_title(title, fontsize=fontsize)
     # ccrs.PlateCarree()
-    #fig.colorbar(im, ax=ax, orientation='horizontal')
+    if colorbar:
+        fig.colorbar(im, ax=ax, orientation='horizontal')
     fig.tight_layout()
     return fig
 
