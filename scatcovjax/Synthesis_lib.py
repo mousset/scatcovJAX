@@ -35,7 +35,7 @@ def fit_jaxopt(params, loss_func, method='GradientDescent', niter: int = 10, los
         if i % 10 == 0:
             loss_value = loss_func(params)
             loss_history.append(loss_value)
-            print(f'Iter {i}, Loss: {loss_value:.10f}, Time = {end - start:.10f} s/iter')
+            print(f'Iter {i}, Loss: {loss_value:.10f}, Time = {end - start:.5f} s/iter')
 
     return params, loss_history
 
@@ -54,7 +54,7 @@ def fit_jaxopt_Scipy(params, loss_func, method='L-BFGS-B', niter: int = 10, loss
         if i % 10 == 0:
             loss_history.append(opt_state.fun_val)
             print(
-                f'Iter {i}, Success: {opt_state.success}, Loss = {opt_state.fun_val}, Time = {end - start:.10f} s/iter')
+                f'Iter {i}, Success: {opt_state.success}, Loss = {opt_state.fun_val}, Time = {end - start:.5f} s/iter')
 
     return params, loss_history
 
@@ -77,7 +77,7 @@ def fit_optax(params: optax.Params, optimizer: optax.GradientTransformation, los
         if i % 10 == 0:
             loss_value = loss_func(params)
             loss_history.append(loss_value)
-            print(f'Iter {i}, Loss: {loss_value:.10f}, Time = {end - start:.10f} s/iter')
+            print(f'Iter {i}, Loss: {loss_value:.10f}, Time = {end - start:.5f} s/iter')
 
     return params, loss_history
 
