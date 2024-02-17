@@ -7,6 +7,7 @@ from jax.lib import xla_bridge
 print(xla_bridge.get_backend().platform)
 
 import os
+import time
 import argparse
 import numpy as np
 import jax.numpy as jnp
@@ -30,11 +31,11 @@ Script to run a synthesis. To run it do:
 ########## ARGUMENTS
 parser = argparse.ArgumentParser()
 
+parser.add_argument('-sky', '--sky', help='Sky map to use.', default='LSS', type=str)
 parser.add_argument('-l', '--L', help='L max value', default=32, type=int)
 parser.add_argument('-n', '--N', help='N value', default=3, type=int)
 parser.add_argument('-j', '--Jmin', help='J_min value', default=1, type=int)
-parser.add_argument('-la', '--lam', help='lam value', default=2.0, type=float)
-parser.add_argument('-f', '--nfilters', help='Number of linear filters', default=12, type=int)
+parser.add_argument('-la', '--lam', help='lam value', default=2, type=float)
 parser.add_argument('-e', '--epochs', help='Number of epochs', default=10, type=int)
 parser.add_argument('-r', '--nreals', help='Number of realisations', default=1, type=int)
 parser.add_argument('-s', '--save_dir', help='Path where outputs are saved.', default='./', type=str)
@@ -45,6 +46,7 @@ args = parser.parse_args()
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
 
+sky = args.sky
 L = args.L
 N = args.N
 J_min = args.Jmin
@@ -57,58 +59,13 @@ J = J_max - J_min + 1
 sampling = "mw"
 multiresolution = True
 reality = True
+if reality:
+    M = L
+else:
+    M = 2 * L - 1
 
 
-###### Loss functions
-# @jit
-# def loss_func_P00prime(flm_float):
-#     # Make complex flm
-#     flm = flm_float[0, :, :] + 1j * flm_float[1, :, :]
-#
-#     _, P00prime_new = scatlib.get_P00prime(flm, filter_lin, normalisation=tP00prime_norm)
-#
-#     loss = synlib.chi2(tP00prime, P00prime_new)
-#     return loss
-
-
-# @jit
-# def loss_func_P00(flm_float):
-#     flm = flm_float[0, :, :] + 1j * flm_float[1, :, :]
-#     #flm = flm_float  ### !!! Test with optax
-#
-#     P00_new = scatlib.get_P00only(flm, L, N, J_min, sampling,
-#                                   None, reality, multiresolution, for_synthesis=True,
-#                                   normalisation=norm, filters=filters,
-#                                   quads=weights, precomps=precomps)
-#     loss = synlib.chi2(tP00, P00_new)
-#     return loss
-
-
-# @jit
-# def loss_func(flm_float):
-#     # Make complex flm
-#     flm = flm_float[0, :, :] + 1j * flm_float[1, :, :]
-#     #flm = flm_float ### !!! Test with optax
-#
-#     mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scatlib.scat_cov_dir(flm, L, N, J_min, sampling,
-#                                                                                 None, reality, multiresolution,
-#                                                                                 for_synthesis=True,
-#                                                                                 normalisation=norm,
-#                                                                                 filters=filters,
-#                                                                                 quads=weights, precomps=precomps)
-#     # Control for mean + var
-#     loss = synlib.chi2(tmean, mean_new)
-#     loss += synlib.chi2(tvar, var_new)
-#
-#     # Add S1, P00, C01, C11 losses
-#     loss += synlib.chi2(tS1, S1_new)
-#     loss += synlib.chi2(tP00, P00_new)
-#     loss += synlib.chi2(tC01, C01_new)
-#     loss += synlib.chi2(tC11, C11_new)
-#
-#     return loss
-
-
+###### LOSS FUNCTION
 @jit
 def loss_func_all(flm_float):
     # Make complex flm
@@ -120,7 +77,7 @@ def loss_func_all(flm_float):
                                                                                 normalisation=norm,
                                                                                 filters=filters,
                                                                                 quads=weights, precomps=precomps)
-    #_, P00prime_new = scatlib.get_P00prime(flm, filter_lin, normalisation=tP00prime_norm)
+    _, P00prime_new = scatlib.get_P00prime(flm, filters_prime, normalisation=tP00prime_norm)
 
     # Control for mean + var
     loss = synlib.chi2(tmean, mean_new)
@@ -133,23 +90,25 @@ def loss_func_all(flm_float):
     loss += synlib.chi2(tC11, C11_new)
 
     # Add constrain on the PS with P00'
-    #loss += synlib.chi2(tP00prime, P00prime_new)
+    loss += synlib.chi2(tP00prime, P00prime_new)
 
     return loss
 
 
 #######################################################################
 if __name__ == "__main__":
+    start_main = time.time()
     print('\n============ Parameters ===============')
-    print(f'{L=}, {N=}, {J=}, {J_min=}, {J_max=}, {lam=}, {reality=}, {nreals=}')
+    print(f'{sky=}, {L=}, {N=}, {J=}, {J_min=}, {J_max=}, {lam=}, {reality=}, {nreals=}')
 
     print('\n============ Build the filters ===============')
+    ### Basic filters
     filters = filters_directional_vectorised(L, N, J_min, lam)[0]
-    ## Linear filters for PS constrain
-    #filter_lin = sphlib.make_linear_filters(args.nfilters, L)
+    ### Additional filters for P00'
+    filters_prime = filters_directional_vectorised(L=L, N=N, J_min=J_min, lam=np.sqrt(2.5))[0][:-2, :, L - 1]
 
     print('\n============ Quadrature weihts ===============')
-    weights = scatlib.quadrature(L, J_min, sampling, None, multiresolution)
+    weights = scatlib.quadrature(L, J_min, lam, sampling, None, multiresolution)
 
     print('\n============ Wigner precomputes ===============')
     ## Make the precomputation and store the coeff
@@ -157,6 +116,7 @@ if __name__ == "__main__":
     precomps = scatlib.generate_full_precompute(L=L,
                                         N=N,
                                         J_min=J_min,
+                                        lam=lam,
                                         sampling=sampling,
                                         reality=reality,
                                         multiresolution=multiresolution,
@@ -171,45 +131,45 @@ if __name__ == "__main__":
     #precomps = pickle.load(file_to_read)
     #file_to_read.close()
 
-    print('\n============ Make the target ===============')
-    ### Sky
-    #repo = '/travail/lmousset/CosmoGrid/CosmoFiducial_barionified_nside512/'
-    #f_target, flm_target = sphlib.make_CosmoGrid_sky(L, dirmap=repo, run=0, idx_z=10, sampling=sampling,
-     #                                                nest=False, normalize=True, reality=reality)
-    #print('Target = LSS map : I = np.log(I + 0.001) - 2')
+    print('\n============ Make the target map ===============')
+    print(f'Target = {sky}')
+    ### SKY
+    if sky == 'lss':
+        repo = '/travail/lmousset/CosmoGrid/CosmoFiducial_barionified_nside512/'
+        f_target, flm_target = sphlib.make_CosmoGrid_sky(L, dirmap=repo, run=0, idx_z=10, sampling=sampling,
+                                                        nest=False, normalize=True, reality=reality)
+    elif sky == 'cmb':
+        f_target, flm_target = sphlib.make_pysm_sky(L, 'cmb', sampling=sampling, nest=False,
+                                                    normalize=True, reality=reality)
+    elif sky == 'tsz':
+        mapfile = '/travail/lmousset/NASAsimu/tSZ_skymap_healpix_nopell_Nside4096_y_tSZrescale0p75.fits'
+        f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
+                                                        nest=False, normalize=True, reality=reality)
+    elif sky == 'lensing':
+        mapfile = '/travail/lmousset/Ulagam/kappa_00099.fits'
+        f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
+                                                        nest=False, normalize=True, reality=reality)
+    elif sky == 'venus':
+        f_target, flm_target = sphlib.make_planet(L, 'venus', normalize=True, reality=reality)
+    else:
+        raise ValueError('sky must be in lss, cmb, tsz, lensing, venus.')
 
-    # f_target, flm_target = sphlib.make_MW_lensing(L, normalize=True, reality=reality)
-    # print('Target = LSS map')
+    print('\n============ Compute target statistics ===============')
+    ### Make a trianguler mask for alm in the 2D array
+    themask = np.real(np.nan_to_num(flm_target / flm_target))  # [L, M]
 
-    #f_target, flm_target = sphlib.make_pysm_sky(L, 'cmb', sampling=sampling, nest=False, normalize=True, reality=reality)
-    #print('Target = CMB map')
-
-    # NASA maps
-    mapfile = '/travail/lmousset/NASAsimu/tSZ_skymap_healpix_nopell_Nside4096_y_tSZrescale0p75.fits'
-    f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
-                                                    nest=False, normalize=True, reality=reality)
-    print('Target = tSZ map')
-
-    # Lensing map from Ulagam
-    #mapfile = '/travail/lmousset/Ulagam/kappa_00099.fits'
-    #f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
-                                                    #nest=False, normalize=True, reality=reality)
-    #print('Target = Lensing Ulagam map')
-
-    #planet = 'venus'
-    #f_target, flm_target = sphlib.make_planet(L, planet, normalize=True, reality=reality)
-    #print('Target = Planet map')
-
-    ### STD of the target
-    std_target = jnp.std(f_target)
-
-    ### Power spectrum of the target
+    ### Power spectrum
     ps_target = sphlib.compute_ps(flm_target)
 
+    ### STD des flm de la target
+    concat = np.concatenate((np.real(flm_target), np.imag(flm_target)))
+    sigma_bar = np.std(concat[concat != 0])
+    print('Sigma_bar target = ', sigma_bar)
+
     ### P00prime used for normalisation
-    #tP00prime_ell, tP00prime_norm = scatlib.get_P00prime(flm_target, filter_lin, normalisation=None)
+    tP00prime_ell, tP00prime_norm = scatlib.get_P00prime(flm_target, filters_prime, normalisation=None)
     # By contruction, P00' are 1 for the target
-    #_, tP00prime = scatlib.get_P00prime(flm_target, filter_lin, normalisation=tP00prime_norm)
+    _, tP00prime = scatlib.get_P00prime(flm_target, filters_prime, normalisation=tP00prime_norm)
 
     ### P00 for normalisation
     tP00_norm = scatlib.get_P00only(flm_target, L, N, J_min, lam, sampling, None,
@@ -228,34 +188,22 @@ if __name__ == "__main__":
     np.save(args.save_dir + 'flm_target.npy', flm_target)
     np.save(args.save_dir + 'coeffs_target.npy', np.array(tcoeffs, dtype=object), allow_pickle=True)
 
-    ### Clean memory
+    ### Clean memory (probably useless)
     del(f_target)
     del(flm_target)
 
+    ### Start the optimization
     for r in range(nreals):
         print(f'\n============ START REAL {r+1}/{nreals} ===============')
-
+        start_real = time.time()
         print('\n============ Build initial conditions ===============')
-        # Gaussian white noise in pixel space
-        print('White noise MW pixel space with the STD of the target')
-        # If the target map is normalized, we should have tvar = 1.
-        print(f'{tvar=}')
-        # np.random.seed(42)  # Fix the seed
-        if reality:  # Real map
-            # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64)
-            f = std_target * np.random.randn(L, 2 * L - 1).astype(np.float64)
-        else:
-            # f = jnp.sqrt(tvar) * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
-            #     1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
-            f = std_target * np.random.randn(L, 2 * L - 1).astype(np.float64) + \
-                1j * np.random.randn(L, 2 * L - 1).astype(np.float64)
-        # SHT to make the initial flm
-        flm = s2fft.forward_jax(f, L, reality=reality)
-        # Clean memory
-        del(f)
-        # Cut the flm
-        flm = flm[:, L - 1:] if reality else flm
-        # Save the start point as we will iterate on flm
+        ### Make white noise alm
+        flm_imag = np.random.randn(L, M) * sigma_bar * themask
+        flm_real = np.random.randn(L, M) * sigma_bar * themask
+        flm = flm_real + 1j * flm_imag
+
+        ### Save the start point as we will iterate on flm
+        flm_start = jnp.copy(flm)
         np.save(args.save_dir + f'flm_start_{r}.npy', flm)
 
         #Compute again coefficients of start
@@ -266,27 +214,10 @@ if __name__ == "__main__":
         # Make a float array for the optimizer
         flm_float = jnp.array([jnp.real(flm), jnp.imag(flm)])  # [2, L, L]
 
-        # print('\n============ Start the synthesis on P00 only ===============')
-        # print('Using jaxopt.GradientDescent')
-        # flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func_P00, method='GradientDescent', niter=args.epochs,
-        #                                       loss_history=None)
-        # print('Using LBFGS from jaxopt.ScipyMinimize')
-        # flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func_P00, method='L-BFGS-B', niter=args.epochs,
-        #                                             loss_history=None)
-
         print("\n============ Start the synthesis on all coeffs including P00' ===============")
-        #print('Using jaxopt.GradientDescent')
-        #flm, loss_history = synlib.fit_jaxopt(flm_float, loss_func, method='GradientDescent', niter=args.epochs,
-         #                                     loss_history=None)
         print('Using LBFGS from jaxopt.ScipyMinimize')
         flm, loss_history = synlib.fit_jaxopt_Scipy(flm_float, loss_func_all, method='L-BFGS-B', niter=args.epochs,
                                                      loss_history=None)
-        #print('Using optax.adam')
-        #lr = 1e-2
-        #optimizer = optax.adam(lr)
-        #flm, loss_history = synlib.fit_optax(flm, optimizer, loss_func, niter=args.epochs,
-        #                                    loss_history=None)
-        #flm_end = jnp.copy(flm)
 
         ### Rebuild the complex flm array
         flm_end = flm[0, :, :] + 1j * flm[1, :, :]
@@ -303,4 +234,8 @@ if __name__ == "__main__":
         # Save the coefficients
         np.save(args.save_dir + f'coeffs_end_{r}.npy', np.array(ecoeffs, dtype=object), allow_pickle=True)
 
+        end_real = time.time()
+        print(f'Duration for real {r+1} = {end_real - start_real:.3f} s = {(end_real - start_real)/60:.3f} min')
+    end_main = time.time()
     print('\n ============ END ===============')
+    print(f'=== Main took {(end_main - start_main)/60:.3f} min = {(end_main - start_main)/3600:.3f} h ===')
