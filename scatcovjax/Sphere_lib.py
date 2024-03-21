@@ -75,7 +75,7 @@ def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, no
     # From nside=512 to nside=L/2
     I = hp.ud_grade(I, nside_out=nside)
     # Take the log
-    I = np.log(I + 0.001) - 2
+    I = np.log(I + 0.001)
 
     if normalize:  # Normalize: mean=0 and std=1
         I = normalize_map(I)
@@ -101,7 +101,7 @@ def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, no
     return I, Ilm
 
 
-def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, reality=True):
+def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, reality=True, sky='lensing'):
     """
 
     Parameters
@@ -126,8 +126,10 @@ def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, re
     # From nside=4096 to nside=L/2
     I = hp.ud_grade(I, nside_out=nside)
     # Take the log
-    #I = np.log(I + 0.0001) - 2  # For Lensing
-    I = np.log(I) + 2  # For tSZ
+    if sky == 'lensing':
+        I = np.log(I + 0.0001)  # For Lensing
+    elif sky == 'tsz':
+        I = np.log(I)  # For tSZ
 
     if normalize:  # Normalize: mean=0 and std=1
         I = normalize_map(I)
@@ -288,10 +290,13 @@ def make_flm_full(flm_half, L):
 
 
 def compute_ps(flm, reality=False):
-    ps = jnp.nansum(jnp.abs(flm) ** 2, axis=-1)
+    """Compute the angular power spectrum Cls = 1/(2l+1) Sum_m[|f_lm|^2]."""
+    L = flm.shape[0]
+    ell = np.arange(L)
+    Cls = jnp.nansum(jnp.abs(flm) ** 2, axis=-1) / (2 * ell + 1)
     if reality:
-        ps = 2. * ps - ps[0]
-    return ps
+        Cls = 2. * Cls - Cls[0]
+    return Cls
 
 
 def gaussian(x, mu, sigma):
