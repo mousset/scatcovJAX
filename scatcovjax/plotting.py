@@ -58,37 +58,50 @@ def plot_sphere(map, L, sampling, isnotebook=True, cmap='viridis'):
     return
 
 
-def plot_filters(filters, real=True, m=None, figsize=(8, 6)):
+def plot_filters(filters, J_min, J_max, real=True, m=None, figsize=(8, 6)):
+    """
+
+    Parameters
+    ----------
+    filters
+    real: bool
+        If True, plot the real part of the filters.
+    m
+    figsize
+
+    Returns
+    -------
+
+    """
     wlm, slm = filters  # Split scaling function and wavelets
     if real:
         wlm = np.real(wlm)
     else:
         wlm = np.imag(wlm)
-    J = wlm.shape[0]  # Number of wavelets
     fig = plt.subplots(1, 1, figsize=figsize)
     # plt.plot(slm, 'k', label='Scaling fct')
-    for j in range(J):
+    for j in range(J_min, J_max + 1):  # J_min <= j <= J_max
         if m is None:  # Axisym filters
-            plt.plot(wlm[j, :], label=f'{j=}')
+            plt.plot(wlm[j, :], color='b', label=f'{j=}')
         else:  # Directionnal filters
-            plt.plot(wlm[j, :, m], label=f'{j=}')
+            plt.plot(wlm[j, :, m], color='b', label=f'{j=}')
     plt.xlabel(r'$\ell$')
     plt.ylabel(r'Filters $\Psi^j_{\ell 0}$')
     plt.xscale('log', base=2)
-    plt.legend()
+    #plt.legend()
     return fig
 
 
 def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=None,
-             cmap='viridis', figsize=(12, 6), reality=False):
+             cmap='viridis', figsize=(12, 6), plot_only_real_part=False):
     """
     Plot the flm in the (l, m) plane.
     flm: array
-        2D array [L, 2L-1]
+        2D array [L, 2L-1] or [L, L]
     """
     L = flm.shape[0]
 
-    if reality:
+    if flm.shape[1] == L:
         flm = sphlib.make_flm_full(flm, L)  # [L, 2L-1]
 
     def for_all_plots(ax):
@@ -100,19 +113,26 @@ def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=No
         ax.plot(np.arange(L + 1), -np.arange(L + 1), 'white')
         ax.grid()
 
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=figsize)
+    if plot_only_real_part:
+        fig, (ax0) = plt.subplots(1, 1, figsize=figsize)
+        im0 = ax0.imshow(np.real(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
+        fig.colorbar(im0, ax=ax0)
+        ax0.set_title('Real part')
+        for_all_plots(ax0)
+    else:
+        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=figsize)
 
-    im0 = ax0.imshow(np.real(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
-    fig.colorbar(im0, ax=ax0)
-    ax0.set_title('Real part')
-    for_all_plots(ax0)
+        im0 = ax0.imshow(np.real(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
+        fig.colorbar(im0, ax=ax0)
+        ax0.set_title('Real part')
+        for_all_plots(ax0)
 
-    im1 = ax1.imshow(np.imag(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
-    fig.colorbar(im1, ax=ax1)
-    ax1.set_title('Imag part')
-    for_all_plots(ax1)
+        im1 = ax1.imshow(np.imag(flm).T, origin='lower', extent=(0, L, -L, L), cmap=cmap, vmin=vmin, vmax=vmax)
+        fig.colorbar(im1, ax=ax1)
+        ax1.set_title('Imaginary part')
+        for_all_plots(ax1)
 
-    fig.tight_layout()
+        fig.tight_layout()
     return fig
 
 
