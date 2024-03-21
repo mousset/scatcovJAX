@@ -109,13 +109,14 @@ def get_P00only(
     return P00
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9))
+@partial(jit, static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 def scat_cov_dir(
     Ilm_in: jnp.ndarray,
     L: int,
     N: int,
     J_min: int,
     lam: float = 2.0,
+    delta_j: int = None,
     sampling: str = "mw",
     nside: int = None,
     reality: bool = False,
@@ -126,9 +127,14 @@ def scat_cov_dir(
     quads: List[jnp.ndarray] = None,
     precomps: List[List[jnp.ndarray]] = None,
 ) -> List[jnp.ndarray]:
+    
     J_max = s2wav.utils.shapes.j_max(L, lam=lam)  # Maximum scale
     # J = J_max - J_min + 1  # Number of scales used
     # !!! Whatever is J_min, the shape of filter is [J_max+1, L, 2L-1] (starting from 0, not J_min)
+
+    # If None, we compute all the coeffs possible
+    if delta_j is None:
+        delta_j = J_max + 1
 
     # Quadrature weights to make spherical integral
     # They can be computed outside and pass to the function as an argument (avoid many computations.)
@@ -285,7 +291,7 @@ def scat_cov_dir(
     # For C01 and C11, we need j1 < j2 so j1=Jmax is not possible, this is why j1 goes from J_min to J_max-1.
     for j1 in range(J_min, J_max):  # J_min <= j1 <= J_max-1
         Njjprime_flat_for_j2 = []
-        for j2 in range(j1 + 1, J_max + 1):  # j1+1 <= j2 <= J_max
+        for j2 in range(j1 + 1, min(j1 + delta_j, J_max + 1)):  # j1+1 <= j2 <= J_max
             Njjprime_flat_for_n2 = []
             for n2 in range(2 * N - 1):
                 # In Njjprime, j2 starts at Jmin + 1 while j1 starts at Jmin
@@ -341,7 +347,7 @@ def scat_cov_dir(
     ### Normalize the coefficients
     if normalisation is not None:
         ### S1 and P00
-        for j2 in range(J_min, J_max + 1):
+        for j2 in range(J_min, J_max + 1):  # J_min <= j2 <= J_max
             S1[j2 - J_min] /= jnp.sqrt(normalisation[j2 - J_min])
             P00[j2 - J_min] /= normalisation[j2 - J_min]
         ## C01 and C11
