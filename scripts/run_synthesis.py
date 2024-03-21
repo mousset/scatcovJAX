@@ -24,7 +24,7 @@ import s2wav
 
 """
 Script to run a synthesis. To run it do:
-    $ python run_synthesis.py --L --N --Jmin --epochs --nreals --save_dir
+    $ python run_synthesis.py --L --N --Jmin --lam --delta_j --epochs --nreals --save_dir
 
 """
 
@@ -36,6 +36,7 @@ parser.add_argument('-l', '--L', help='L max value', default=32, type=int)
 parser.add_argument('-n', '--N', help='N value', default=3, type=int)
 parser.add_argument('-j', '--Jmin', help='J_min value', default=1, type=int)
 parser.add_argument('-la', '--lam', help='lam value', default=2, type=float)
+parser.add_argument('-d', '--delta_j', help='dela_j value', default=None, type=int)
 parser.add_argument('-e', '--epochs', help='Number of epochs', default=10, type=int)
 parser.add_argument('-r', '--nreals', help='Number of realisations', default=1, type=int)
 parser.add_argument('-s', '--save_dir', help='Path where outputs are saved.', default='./', type=str)
@@ -51,6 +52,7 @@ L = args.L
 N = args.N
 J_min = args.Jmin
 lam = args.lam
+delta_j = args.delta_j
 nreals = args.nreals
 J_max = s2wav.utils.shapes.j_max(L)
 J = J_max - J_min + 1
@@ -71,7 +73,7 @@ def loss_func_all(flm_float):
     # Make complex flm
     flm = flm_float[0, :, :] + 1j * flm_float[1, :, :]
 
-    mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scatlib.scat_cov_dir(flm, L, N, J_min, lam, sampling,
+    mean_new, var_new, S1_new, P00_new, C01_new, C11_new = scatlib.scat_cov_dir(flm, L, N, J_min, lam, delta_j, sampling,
                                                                                 None, reality, multiresolution,
                                                                                 for_synthesis=True,
                                                                                 normalisation=norm,
@@ -105,7 +107,7 @@ if __name__ == "__main__":
     ### Basic filters
     filters = filters_directional_vectorised(L, N, J_min, lam)[0]
     ### Additional filters for P00'
-    filters_prime = filters_directional_vectorised(L=L, N=N, J_min=J_min, lam=np.sqrt(2.5))[0][:-2, :, L - 1]
+    filters_prime = filters_directional_vectorised(L=L, N=N, J_min=J_min, lam=np.sqrt(2.5))[0][J_min:-2, :, L - 1]
 
     print('\n============ Quadrature weihts ===============')
     weights = scatlib.quadrature(L, J_min, lam, sampling, None, multiresolution)
@@ -144,11 +146,11 @@ if __name__ == "__main__":
     elif sky == 'tsz':
         mapfile = '/travail/lmousset/NASAsimu/tSZ_skymap_healpix_nopell_Nside4096_y_tSZrescale0p75.fits'
         f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
-                                                        nest=False, normalize=True, reality=reality)
+                                                        nest=False, normalize=True, reality=reality, sky=sky)
     elif sky == 'lensing':
         mapfile = '/travail/lmousset/Ulagam/kappa_00099.fits'
         f_target, flm_target = sphlib.make_NASAsimu_sky(L, mapfile=mapfile, sampling=sampling,
-                                                        nest=False, normalize=True, reality=reality)
+                                                        nest=False, normalize=True, reality=reality, sky=sky)
     elif sky == 'venus':
         f_target, flm_target = sphlib.make_planet(L, 'venus', normalize=True, reality=reality)
     else:
@@ -179,7 +181,7 @@ if __name__ == "__main__":
 
     ### Scat coeffs S1, P00, C01, C11
     # tP00 is one by definition of the normalisation (if norm is not None)
-    tcoeffs = scatlib.scat_cov_dir(flm_target, L, N, J_min, lam, sampling, None,
+    tcoeffs = scatlib.scat_cov_dir(flm_target, L, N, J_min, lam, delta_j, sampling, None,
                                    reality, multiresolution, for_synthesis=True, normalisation=norm,
                                    filters=filters, quads=weights, precomps=precomps)
     tmean, tvar, tS1, tP00, tC01, tC11 = tcoeffs  # 1D arrays
@@ -207,7 +209,7 @@ if __name__ == "__main__":
         np.save(args.save_dir + f'flm_start_{r}.npy', flm)
 
         #Compute again coefficients of start
-        scoeffs = scatlib.scat_cov_dir(flm, L, N, J_min, lam, sampling, None,
+        scoeffs = scatlib.scat_cov_dir(flm, L, N, J_min, lam, delta_j, sampling, None,
                                reality, multiresolution, for_synthesis=True, normalisation=norm,
                                filters=filters, quads=weights, precomps=precomps)
         np.save(args.save_dir + f'coeffs_start_{r}.npy', np.array(scoeffs, dtype=object), allow_pickle=True)
@@ -223,7 +225,7 @@ if __name__ == "__main__":
         flm_end = flm[0, :, :] + 1j * flm[1, :, :]
 
         print('\n============ Compute again coefficients of end  ===============')
-        ecoeffs = scatlib.scat_cov_dir(flm_end, L, N, J_min, lam, sampling, None,
+        ecoeffs = scatlib.scat_cov_dir(flm_end, L, N, J_min, lam, delta_j, sampling, None,
                                reality, multiresolution, for_synthesis=True, normalisation=norm,
                                filters=filters, quads=weights, precomps=precomps)
 
@@ -235,7 +237,7 @@ if __name__ == "__main__":
         np.save(args.save_dir + f'coeffs_end_{r}.npy', np.array(ecoeffs, dtype=object), allow_pickle=True)
 
         end_real = time.time()
-        print(f'Duration for real {r+1} = {end_real - start_real:.3f} s = {(end_real - start_real)/60:.3f} min')
+        print(f'Duration for real {r} = {end_real - start_real:.3f} s = {(end_real - start_real)/60:.3f} min')
     end_main = time.time()
     print('\n ============ END ===============')
     print(f'=== Main took {(end_main - start_main)/60:.3f} min = {(end_main - start_main)/3600:.3f} h ===')
