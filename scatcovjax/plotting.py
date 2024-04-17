@@ -82,13 +82,13 @@ def plot_filters(filters, J_min, J_max, real=True, m=None, figsize=(8, 6)):
     # plt.plot(slm, 'k', label='Scaling fct')
     for j in range(J_min, J_max + 1):  # J_min <= j <= J_max
         if m is None:  # Axisym filters
-            plt.plot(wlm[j, :], color='b', label=f'{j=}')
+            plt.plot(wlm[j, :], label=f'{j=}')
         else:  # Directionnal filters
-            plt.plot(wlm[j, :, m], color='b', label=f'{j=}')
-    plt.xlabel(r'$\ell$')
+            plt.plot(wlm[j, :, m], label=f'{j=}')
+    plt.xlabel(r'Multipole $\ell$')
     plt.ylabel(r'Filters $\Psi^j_{\ell 0}$')
     plt.xscale('log', base=2)
-    #plt.legend()
+    plt.legend(loc='upper left')
     return fig
 
 
