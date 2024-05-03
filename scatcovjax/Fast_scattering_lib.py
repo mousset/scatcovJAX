@@ -55,7 +55,7 @@ def get_P00only(
 
     # Part of the Wigner transform that can be computed just once.
     # It can be computed outside and pass to the function as an argument (avoid many computations.)
-    if precomps == None:
+    if precomps is None:
         raise ValueError("Must provide precomputed kernels for this transform!")
 
     # If the map is real (only m>0 stored) so we create the (m<0) part.
@@ -148,7 +148,7 @@ def scat_cov_dir(
 
     # Part of the Wigner transform that can be computed just once.
     # It can be computed outside and pass to the function as an argument (avoid many computations.)
-    if precomps == None:
+    if precomps is None:
         raise ValueError("Must provide precomputed kernels for this transform!")
 
     # If the map is real (only m>0 stored), we create the (m<0) part.
@@ -162,10 +162,9 @@ def scat_cov_dir(
     # Compute |Ilm|^2 = Ilm x Ilm*
     Ilm_square = Ilm * jnp.conj(Ilm)
     # Compute the variance : Sum all except the (l=0, m=0) term
-    # Todo: TEST
     var = (jnp.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
-    # var = jnp.mean(Ilm_square - Ilm_square[0, L - 1])  # mean() et non sum()/4pi
-    # var = jnp.mean(jnp.abs(Ilm[1:]) ** 2)  # Comme avant
+
+    ### Histogram
 
     ### Perform first (full-scale) wavelet transform W_j2 = I * Psi_j2
     W = wavelets.flm_to_analysis(
@@ -239,13 +238,6 @@ def scat_cov_dir(
         )  # [Norient2]
         # Other way: average over lm (Parseval) : P00_j2 = < |M_lm|^2 >_j2 (does not give exactly the same)
         # val = jnp.sum(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
-        # Todo: TEST
-        # val = jnp.mean((jnp.abs(W[j2 - J_min]) ** 2)
-        #               * quads[j2 - J_min][None, :, None], axis=(-1, -2))  # [Norient2] mean() et non sum/4pi
-
-        # val = jnp.mean(jnp.abs(W[j2 - J_min]) ** 2, axis=(-1, -2)) * Lj2/L # Comme avant autre version
-        # val = jnp.mean(jnp.abs(M_lm_j2) ** 2, axis=(-1, -2)) * Lj2/L # Comme avant
-        # val = jnp.sum((jnp.abs(W[j2 - J_min]) ** 2), axis=(-1, -2)) / (4 * np.pi)  # [Norient2]
         P00.append(val)  # [J2][Norient2]
 
         ### Compute Njjprime
@@ -253,7 +245,7 @@ def scat_cov_dir(
         if j2 != J_min:
             # Filters: We must keep all scales
             # the selection from J_min to J_max=j2-1 is done in the function flm_to_analysis()
-            filters_j2 = filters[:, :Lj2, L - Lj2 : L - 1 + Lj2]
+            filters_j2 = filters[:, :Lj2, L - Lj2: L - 1 + Lj2]
             ### Compute Njjprime
             Njjprime_for_j2 = []
             # TODO: This loop will increase compile time.
@@ -385,10 +377,6 @@ def scat_cov_dir(
         C01 = jnp.concatenate(C01, axis=None)  # [NC01]
         C11 = jnp.concatenate(C11, axis=None)  # [NC11]
 
-        # !!! TEST
-        # S1 = jnp.log(S1)
-        # P00 = jnp.log(P00)
-
     return mean, var, S1, P00, C01, C11
 
 
@@ -404,7 +392,6 @@ def quadrature(
     quads = []
     for j in range(J_min, J + 1):
         Lj = s2wav.utils.shapes.wav_j_bandlimit(L, j, lam, multiresolution)
-        #quads.append(s2fft.utils.quadrature_jax.quad_weights_mw_theta_only(Lj))
         quads.append(s2fft.utils.quadrature_jax.quad_weights(Lj, sampling, nside))
     return quads
 
