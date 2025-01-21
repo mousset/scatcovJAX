@@ -16,6 +16,7 @@ from astropy.io import fits
 
 def normalize_map(I):
     """ Normalize the map I: mean=0 and std=1."""
+    print(f'Mean and STD: {np.mean(I):.5f} and {np.std(I):.5f}')
     I -= np.nanmean(I)
     I /= np.nanstd(I)
     print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
@@ -42,7 +43,8 @@ def get_mean_redshift(shell_info):
     return z_mean
 
 
-def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, normalize=False, reality=True):
+def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False,
+                       get_log=True, normalize=False, reality=True):
     """
 
     Parameters
@@ -75,7 +77,8 @@ def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, no
     # From nside=512 to nside=L/2
     I = hp.ud_grade(I, nside_out=nside)
     # Take the log
-    I = np.log(I + 0.001)
+    if get_log:
+        I = np.log(I + 0.001)
 
     if normalize:  # Normalize: mean=0 and std=1
         I = normalize_map(I)
@@ -101,7 +104,8 @@ def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False, no
     return I, Ilm
 
 
-def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, reality=True, sky='lensing'):
+def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False,
+                      get_log=True, normalize=False, reality=True, sky='lensing'):
     """
 
     Parameters
@@ -126,10 +130,14 @@ def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False, normalize=False, re
     # From nside=4096 to nside=L/2
     I = hp.ud_grade(I, nside_out=nside)
     # Take the log
-    if sky == 'lensing':
-        I = np.log(I + 0.0001)  # For Lensing
-    elif sky == 'tsz':
-        I = np.log(I)  # For tSZ
+    if get_log:
+        if sky == 'lensing':
+            print(np.min(I))
+            #I = np.log(I - np.min(I) + 1e-6)
+            I = np.log(I + 0.0001)  # For Lensing
+        elif sky == 'tsz':
+            print(np.min(I))
+            I = np.log(I)  # For tSZ
 
     if normalize:  # Normalize: mean=0 and std=1
         I = normalize_map(I)

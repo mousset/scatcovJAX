@@ -1,7 +1,11 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import cartopy.crs as ccrs
+import pynkowski as mf   # For Minkowski Functionals
 import s2fft
+#from mayavi import mlab
+import s2wav
+from s2fft.sampling import s2_samples as samples
 
 import scatcovjax.Sphere_lib as sphlib
 
@@ -15,6 +19,28 @@ def notebook_plot_format():
     plt.rc('legend', fontsize=14)  # legend fontsize
     plt.rc('figure', titlesize=16)  # fontsize of the figure title
     return
+
+
+def get_hist_envelop(f, bins=100, range=(-10, 10), cumulative=False):
+    """Return the fraction of pixels as a function of the pixel values.
+    The histogram is normalized such that the sum is one."""
+    hist, bins_edges = np.histogram(f, bins=bins, range=range, density=True)
+    bins_centers = (bins_edges[:-1] + bins_edges[1:]) / 2  # Bin centers
+    bw = bins_centers[1] - bins_centers[0]
+    if cumulative:
+        cumsum = np.cumsum(hist*bw)
+        return bins_centers, cumsum
+    else:
+        return bins_centers, hist * bw
+
+
+def make_minkowski(us, map_hpx):
+    data = mf.Healpix(map_hpx, normalise=False, mask=None)  # Default parameters
+    v0 = mf.V0(data, us)
+    v1 = mf.V1(data, us)
+    v2 = mf.V2(data, us)
+
+    return v0, v1, v2
 
 
 def plot_map_MW_Mollweide(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vmax=None,
@@ -50,12 +76,33 @@ def plot_map_MW_Orthographic(map_MW, figsize=(12, 8), fontsize=16, vmin=None, vm
     return
 
 
-def plot_sphere(map, L, sampling, isnotebook=True, cmap='viridis'):
-    """
-    Nice interactive plot from S2FFT.
-    """
-    s2fft.utils.plotting_functions.plot_sphere(map, L=L, sampling=sampling, isnotebook=isnotebook, cmap=cmap)
-    return
+def plot_sphere(f: np.ndarray, L: int, sr: float, mx: float, mn: float):
+
+    # Define meshgrid points on spherical surface
+    phis = samples.phis_equiang(L, sampling="mw")
+    thetas = samples.thetas(L, sampling="mw")
+
+    # Fix continuity at boundaries for visualisation
+    thetas[0] = 0
+    phis[-1] = 2 * np.pi
+
+    # Generate angular meshgrid
+    phi, theta = np.meshgrid(phis, thetas)
+
+    # Scaling to increase/decrease magnitude of coefficient for visualisation
+    temp = (f - mn) / mx
+    r = sr + temp
+
+    # Convert angular meshgrid to cartesian
+    x = r * np.sin(theta) * np.cos(phi)
+    y = r * np.sin(theta) * np.sin(phi)
+    z = r * np.cos(theta)
+
+    # 3D render using mayavi package.
+    mlab.figure(1, bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(300, 300))
+    mlab.clf()
+    mlab.mesh(x, y, z, scalars=temp, colormap="viridis",vmax=1-mn/mx,vmin=0)
+    mlab.show()
 
 
 def plot_filters(filters, J_min, J_max, real=True, m=None, figsize=(8, 6)):
@@ -111,7 +158,7 @@ def plot_alm(flm, vmin=None, vmax=None, lmin=None, lmax=None, mmin=None, mmax=No
         ax.set_ylim(mmin, mmax)
         ax.plot(np.arange(L + 1), np.arange(L + 1), 'white')
         ax.plot(np.arange(L + 1), -np.arange(L + 1), 'white')
-        ax.grid()
+        #ax.grid()
 
     if plot_only_real_part:
         fig, (ax0) = plt.subplots(1, 1, figsize=figsize)

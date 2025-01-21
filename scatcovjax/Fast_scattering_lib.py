@@ -151,6 +151,13 @@ def scat_cov_dir(
     if precomps is None:
         raise ValueError("Must provide precomputed kernels for this transform!")
 
+    ### Histogram
+    # Make the Healpix map
+    #I_hpx = s2fft.inverse_jax(Ilm_in, L=L, sampling='mw', reality=reality)
+    #I_hpx = s2fft.inverse_jax(Ilm_in, L=L, nside=int(L / 2), sampling='healpix', reality=reality)
+    #hist, _ = jnp.histogram(jnp.real(I_hpx), bins=30, range=(-3, 4), density=True)
+    #cumsum = jnp.cumsum(hist[::-1])
+
     # If the map is real (only m>0 stored), we create the (m<0) part.
     if reality:
         Ilm = sphlib.make_flm_full(Ilm_in, L)  # [L, 2L-1]
@@ -164,7 +171,6 @@ def scat_cov_dir(
     # Compute the variance : Sum all except the (l=0, m=0) term
     var = (jnp.sum(Ilm_square) - Ilm_square[0, L - 1]) / (4 * np.pi)
 
-    ### Histogram
 
     ### Perform first (full-scale) wavelet transform W_j2 = I * Psi_j2
     W = wavelets.flm_to_analysis(
