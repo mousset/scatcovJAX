@@ -10,82 +10,167 @@ import s2fft
 # To open earth map
 from PIL import Image
 from matplotlib.image import pil_to_array
+from astropy.io import fits
+#from astropy.utils.data import get_pkg_data_filename
 
 
-# """
-# This library is made to
-# - Load Healpix or MW sky map
-# - define mathematical operations on the sphere (mean, scalar product...)
-# """
+def normalize_map(I):
+    """ Normalize the map I: mean=0 and std=1."""
+    print(f'Mean and STD: {np.mean(I):.5f} and {np.std(I):.5f}')
+    I -= np.nanmean(I)
+    I /= np.nanstd(I)
+    print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    return I
 
-############ MAKING SKY MAPS
+
+def sort_CosmoGrid_maps(data_LSS):
+    sort = np.argsort(data_LSS['shell_info'])
+
+    shell_info = data_LSS['shell_info'][sort]
+    shells = data_LSS['shells'][sort]
+
+    return shell_info, shells
 
 
-def make_hpx_planet(nside, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps',
-                    interp=True, normalize=False, nest=False):
+def get_mean_redshift(shell_info):
+    nmaps = shell_info.size
+    z_mean = np.zeros(nmaps)
+    for i in range(nmaps):
+        lower_z = shell_info[i][2]
+        upper_z = shell_info[i][3]
+        z_mean[i] = (lower_z + upper_z) / 2
+
+    return z_mean
+
+
+def make_CosmoGrid_sky(L, dirmap, run=0, idx_z=10, sampling='mw', nest=False,
+                       get_log=True, normalize=False, reality=True):
     """
-    Create a Healpix map from a JPG.
-    For now, there are 4 options: CMB, Dust, random noise or the Earth map.
+
     Parameters
     ----------
-    nside: int
-        Nside parameter from Healpix. The number of pixel is 12xNside^2.
-        It must be a power of 2.
-    planet: str
-        Name of the planet. Keywords allowed are: 'earth', 'sun', 'moon', 'mercury', 'venus', 'jupiter', 'ceres'
-    dirmap: str
-        Directory where planet maps are stored.
-    interp: bool
-         If True, make an interpolation of the 2D array.
-    normalize: bool
-        If True, the mean of the map is set to 0 and the STD to 1.
-    nest: bool
-        If True return a Healpix map in NEST ordering instead of RING ordering. False by default.
+    L
+    dirmap
+    run: int
+        Index of the run.
+    idx_z: int
+        Index of the map from 0 to 68 corresponding to a given redshift z.
+    sampling
+    nest
+    normalize
+    reality
+
     Returns
     -------
-    map: the Healpix map.
-    """
-    grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
-    image_array = pil_to_array(grayscale_pil_image)
-    theta = np.linspace(0, np.pi, num=image_array.shape[0])[:, None]
-    phi = np.linspace(0, 2 * np.pi, num=image_array.shape[1])
-    npix = hp.nside2npix(nside)
 
-    if interp:
-        f = interp2d(theta, phi, image_array.T, kind='cubic')
-        map = np.zeros(npix)
-        for p in range(npix):
-            th, ph = hp.pix2ang(nside=nside, ipix=p)
-            map[p] = f(th, ph)
-    else:
-        pix = hp.ang2pix(nside, theta, phi)
-        map = np.zeros(npix, dtype=np.double)
-        map[pix] = image_array
-    # Convert float64 to float32
-    map = np.array(map, dtype=np.float32)
+    """
+    nside = int(L / 2)
+
+    ### Get the Healpix map
+    # Get all the maps sort by redshift
+    data_LSS = np.load(dirmap + f'baryonified_shells_run{run:04}.npz')
+    shell_info, shells = sort_CosmoGrid_maps(data_LSS)
+    # Take the map
+    I = shells[idx_z, :]
+    z = get_mean_redshift(shell_info)[idx_z]
+    print(f'Map at redshift {z=}')
+    # From nside=512 to nside=L/2
+    I = hp.ud_grade(I, nside_out=nside)
+    # Take the log
+    if get_log:
+        I = np.log(I + 0.001)
+
     if normalize:  # Normalize: mean=0 and std=1
-        map -= np.mean(map)
-        map /= np.std(map)
-    print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
+        I = normalize_map(I)
 
-    # Convert from RING to NEST ordering
+    # Convert from RING to NEST ordering in case of healpix sampling
     if nest:
-        map = hp.reorder(map, r2n=True)
+        I = hp.reorder(I, r2n=True)
 
-    return map
+    # SHT inverse transform at L
+    Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
+
+    if sampling == 'mw':
+        ### Make a MW map
+        I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
+        print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L - 1:]  # [L, L]
+
+    return I, Ilm
 
 
-def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
+def make_NASAsimu_sky(L, mapfile, sampling='mw', nest=False,
+                      get_log=True, normalize=False, reality=True, sky='lensing'):
     """
-    Create a Healpix map.
-    For now, there are 3 options: CMB, Dust or random noise.
+
     Parameters
     ----------
-    nside: int
-        Nside parameter from Healpix. The number of pixel is 12xNside^2.
-        It must be a power of 2.
+    L
+    dirmap
+    sampling
+    nest
+    normalize
+    reality
+
+    Returns
+    -------
+
+    """
+    nside = int(L / 2)
+
+    ### Get the Healpix map
+    image_file = fits.open(mapfile)
+    I = hp.read_map(image_file, 0, h=False)
+
+    # From nside=4096 to nside=L/2
+    I = hp.ud_grade(I, nside_out=nside)
+    # Take the log
+    if get_log:
+        if sky == 'lensing':
+            print(np.min(I))
+            #I = np.log(I - np.min(I) + 1e-6)
+            I = np.log(I + 0.0001)  # For Lensing
+        elif sky == 'tsz':
+            print(np.min(I))
+            I = np.log(I)  # For tSZ
+
+    if normalize:  # Normalize: mean=0 and std=1
+        I = normalize_map(I)
+
+    # Convert from RING to NEST ordering in case of healpix sampling
+    if nest:
+        I = hp.reorder(I, r2n=True)
+
+    # SHT inverse transform at L
+    Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
+
+    if sampling == 'mw':
+        ### Make a MW map
+        I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
+        print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L - 1:]  # [L, L]
+
+    return I, Ilm
+
+
+def make_pysm_sky(L, sky_type, sampling='mw', nest=False, normalize=False, reality=True):
+    """
+    Create a Healpix or MW map.
+    For now, there are 2 options: CMB or Dust.
+    Parameters
+    ----------
     sky_type: str
-        Type of sky. Keywords allowed are: 'cmb', 'dust', 'noise'
+        Type of sky. Keywords allowed are: 'cmb', 'dust'
     normalize: bool
         If True, the mean of the map is set to 0 and the STD to 1.
     nest: bool
@@ -94,38 +179,50 @@ def make_hpx_sky(nside, sky_type, normalize=False, nest=False):
     -------
     map: the Healpix map.
     """
-
-    if sky_type == 'noise':  # White noise
-        map = np.random.random(size=12 * nside ** 2)
-
-    elif sky_type == 'cmb':  # CMB sky
+    # PySM gives healpix maps
+    nside = int(L/2)
+    if sky_type == 'cmb':  # CMB sky
         sky = pysm3.Sky(nside=nside, preset_strings=["c1"], output_unit="K_CMB")
         cmb_maps = sky.get_emission(freq=np.array(150) * u.GHz)
-        map = cmb_maps[0, :].value  # Take only intensity and remove unit
+        I = cmb_maps[0, :].value  # Take only intensity and remove unit
 
     elif sky_type == 'dust':  # Dust sky
         sky = pysm3.Sky(nside=nside, preset_strings=["d1"], output_unit="K_CMB")
         dust_maps = sky.get_emission(freq=np.array(400) * u.GHz)
-        map = dust_maps[0, :].value  # Take only intensity and remove unit
-
+        I = dust_maps[0, :].value  # Take only intensity and remove unit
     else:
-        raise ValueError('sky_type argument has a wrong value.')
-    # Convert float64 to float32
-    map = np.array(map, dtype=np.float32)
+        raise ValueError('sky_type argument must be cmb or dust.')
+
     if normalize:  # Normalize: mean=0 and std=1
-        map -= np.mean(map)
-        map /= np.std(map)
-    print(f'Mean and STD: {np.mean(map):.3f} and {np.std(map):.3f}')
+        I = normalize_map(I)
 
-    # Convert from RING to NEST ordering
+    # Convert from RING to NEST ordering in case of healpix sampling
     if nest:
-        map = hp.reorder(map, r2n=True)
+        I = hp.reorder(I, r2n=True)
 
-    return map
+    # SHT inverse transform at L
+    Ilm = s2fft.forward_jax(I, L, sampling='healpix', nside=nside, reality=reality)  # [L, 2L-1]
+
+    if sampling == 'mw':
+        ### Make a MW map
+        I = s2fft.inverse_jax(Ilm, L, sampling='mw', nside=None, reality=reality)  # [Ntheta, 2Ntheta-1]
+        print(f'Mean and STD: {np.mean(I):.3f} and {np.std(I):.3f}')
+    elif sampling == 'healpix':
+        ### Inverse transform to kill small scales and have same power in I and Ilm
+        I = s2fft.inverse_jax(Ilm, L=L, nside=nside, reality=reality, sampling='healpix')
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L - 1:]  # [L, L]
+
+    return I, Ilm
 
 
-def make_MW_planet(L, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps',
-                   normalize=False, reality=True):
+def make_planet(L, planet, sampling='mw', nside=None, nest=False, dirmap=dirname(dirname(__file__)) + '/texture_maps',
+                normalize=False, reality=True):
+    """
+    Make a planet map.
+    If sampling='mw', the map is a 2D array [Ntheta, Nphi]=[L, 2L-1]
+    """
     # Load the JPG map
     grayscale_pil_image = Image.open(dirmap + f'/{planet}.jpg').convert("L")
     I = pil_to_array(grayscale_pil_image).astype(np.float64)
@@ -140,13 +237,44 @@ def make_MW_planet(L, planet, dirmap=dirname(dirname(__file__)) + '/texture_maps
     print(Ilm.shape)
 
     # SHT inverse transform at L
-    I = s2fft.inverse_jax(Ilm, L, reality=reality)  # [Ntheta, 2Ntheta-1]
+    I = s2fft.inverse_jax(Ilm, L, sampling=sampling, nside=nside, reality=reality)  # [Ntheta, 2Ntheta-1] or [Npix]
     if normalize:
-        I -= np.mean(I)
-        I /= np.std(I)
+        I = normalize_map(I)
+    # Convert from RING to NEST ordering in case of healpix sampling
+    if nest:
+        I = hp.reorder(I, r2n=True)
 
     # SHT forward transform at L
-    Ilm = s2fft.forward_jax(I, L, reality=reality)  # [L, 2L-1]
+    Ilm = s2fft.forward_jax(I, L, sampling=sampling, nside=nside, reality=reality)  # [L, 2L-1]
+
+    # Get only positive m
+    if reality:
+        Ilm = Ilm[:, L-1:]  # [L, L]
+
+    return I, Ilm
+
+
+def make_MW_lensing(L, dirmap=dirname(dirname(__file__)) + '/texture_maps/raw_data/',
+                   normalize=False, reality=True):
+
+    if L in [256, 350, 400, 512]:
+        I = np.load(dirmap + f'CosmoML_shell_40_L_{L}.npy')
+    elif L < 256:
+        I = np.load(dirmap + f'CosmoML_shell_40_L_256.npy')
+        Ilm = s2fft.forward_jax(I, 256, reality=reality)
+        # Cut the Ilm at the L resolution
+        Ilm = Ilm[:L, 256 - L:256 + L - 1]  # [L, 2L-1]
+        # SHT inverse transform at L
+        I = s2fft.inverse_jax(Ilm, L, reality=reality)  # [Ntheta, 2Ntheta-1]
+    else:
+        raise ValueError('Wrong L value.')
+
+    if normalize:
+        I -= np.nanmean(I)
+        I /= np.nanstd(I)
+
+    # SHT forward transform at L
+    Ilm = s2fft.forward_jax(I, L, reality=reality)
 
     # Get only positive m
     if reality:
@@ -169,8 +297,32 @@ def make_flm_full(flm_half, L):
     return flm_full
 
 
-def compute_ps(flm):
-    return jnp.sum(jnp.abs(flm)**2,axis=-1)
+def compute_ps(flm, reality=False):
+    """Compute the angular power spectrum Cls = 1/(2l+1) Sum_m[|f_lm|^2]."""
+    L = flm.shape[0]
+    ell = np.arange(L)
+    Cls = jnp.nansum(jnp.abs(flm) ** 2, axis=-1) / (2 * ell + 1)
+    if reality:
+        Cls = 2. * Cls - Cls[0]
+    return Cls
+
+
+def gaussian(x, mu, sigma):
+    """ Return the normalized Gaussian with standard deviation sigma and mean mu. """
+    return jnp.exp(-0.5 * ((x-mu) / sigma)**2)
+
+
+def make_linear_filters(Nfilters, L):
+    """
+    We linearly span the l axis from 0 to L-1 with Gaussian with standard deviation equal to L//Nfilters
+    and normalized with maximum equal to 1.
+    """
+    filter_lin = np.zeros((Nfilters, L))
+    ll = np.arange(0, L)
+    for j in range(Nfilters):
+        filter_lin[j, :] = gaussian(ll, L//(Nfilters) * (j+1), L//Nfilters)
+    return filter_lin
+
 
 # ############ AVERAGE, VARIANCE AND PS ON SPHERE
 # class Spherical_Compute():
